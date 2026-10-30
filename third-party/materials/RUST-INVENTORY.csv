@@ -1,0 +1,235 @@
+﻿crate,version,declared license (OR alternatives not all selected),repository,copied notices
+adler2,2.0.1,0BSD OR MIT OR Apache-2.0,https://github.com/oyvindln/adler2,LICENSE-0BSD;LICENSE-APACHE;LICENSE-MIT
+allocator-api2,0.2.21,MIT OR Apache-2.0,https://github.com/zakarumych/allocator-api2,LICENSE-APACHE;LICENSE-MIT
+annotate-snippets,0.12.17,MIT OR Apache-2.0,https://github.com/rust-lang/annotate-snippets-rs,LICENSE-APACHE;LICENSE-MIT
+anstyle,1.0.14,MIT OR Apache-2.0,https://github.com/rust-cli/anstyle.git,LICENSE-APACHE;LICENSE-MIT
+arboard,3.7.0,MIT OR Apache-2.0,https://github.com/1Password/arboard,LICENSE-APACHE.txt;LICENSE-MIT.txt
+arrayref,0.3.9,BSD-2-Clause,https://github.com/droundy/arrayref,LICENSE
+arrayvec,0.7.8,MIT OR Apache-2.0,https://github.com/bluss/arrayvec,LICENSE-APACHE;LICENSE-MIT
+autocfg,1.5.1,Apache-2.0 OR MIT,https://github.com/cuviper/autocfg,LICENSE-APACHE;LICENSE-MIT
+base64,0.23.1,MIT OR Apache-2.0,https://github.com/marshallpierce/rust-base64,LICENSE-APACHE;LICENSE-MIT
+bitflags,2.13.2,MIT OR Apache-2.0,https://github.com/bitflags/bitflags,LICENSE-APACHE;LICENSE-MIT
+by_address,1.2.1,MIT OR Apache-2.0,https://github.com/mbrubeck/by_address,LICENSE-APACHE;LICENSE-MIT
+bytemuck,1.25.2,Zlib OR Apache-2.0 OR MIT,https://github.com/Lokathor/bytemuck,LICENSE-APACHE;LICENSE-MIT;LICENSE-ZLIB
+bytemuck_derive,1.12.1,Zlib OR Apache-2.0 OR MIT,https://github.com/Lokathor/bytemuck,LICENSE-APACHE;LICENSE-MIT;LICENSE-ZLIB
+byteorder-lite,0.1.0,Unlicense OR MIT,https://github.com/image-rs/byteorder-lite,LICENSE-MIT
+cfg-if,1.0.5,MIT OR Apache-2.0,https://github.com/rust-lang/cfg-if,LICENSE-APACHE;LICENSE-MIT
+cfg_aliases,0.2.2,MIT,https://github.com/katharostech/cfg_aliases,LICENSE;NOTICES.md
+chrono,0.4.45,MIT OR Apache-2.0,https://github.com/chronotope/chrono,LICENSE.txt
+clipboard-win,5.4.3,BSL-1.0,https://github.com/DoumanAsh/clipboard-win,LICENSE
+clru,0.6.3,MIT,https://github.com/marmeladema/clru-rs,LICENSE
+color_quant,1.1.0,MIT,https://github.com/image-rs/color_quant.git,LICENSE
+const-field-offset,0.2.1,MIT OR Apache-2.0,https://github.com/slint-ui/slint,LICENSES
+const-field-offset-macro,0.2.1,MIT OR Apache-2.0,https://github.com/slint-ui/slint,LICENSES
+convert_case,0.10.0,MIT,https://github.com/rutrum/convert-case,LICENSE
+countme,3.0.1,MIT OR Apache-2.0,https://github.com/matklad/countme,LICENSE-APACHE;LICENSE-MIT
+crc32fast,1.5.3,MIT OR Apache-2.0,https://github.com/srijs/rust-crc32fast,LICENSE-APACHE;LICENSE-MIT
+critical-section,1.2.0,MIT OR Apache-2.0,https://github.com/rust-embedded/critical-section,LICENSE-APACHE;LICENSE-MIT
+crossbeam-channel,0.5.17,MIT OR Apache-2.0,https://github.com/crossbeam-rs/crossbeam,LICENSE-APACHE;LICENSE-MIT;LICENSE-THIRD-PARTY
+crossbeam-deque,0.8.8,MIT OR Apache-2.0,https://github.com/crossbeam-rs/crossbeam,LICENSE-APACHE;LICENSE-MIT
+crossbeam-epoch,0.9.21,MIT OR Apache-2.0,https://github.com/crossbeam-rs/crossbeam,LICENSE-APACHE;LICENSE-MIT
+crossbeam-utils,0.8.23,MIT OR Apache-2.0,https://github.com/crossbeam-rs/crossbeam,LICENSE-APACHE;LICENSE-MIT
+cursor-icon,1.2.0,MIT OR Apache-2.0 OR Zlib,https://github.com/rust-windowing/cursor-icon,LICENSE-APACHE;LICENSE-MIT;LICENSE-ZLIB
+data-url,0.3.2,MIT OR Apache-2.0,https://github.com/servo/rust-url,LICENSE-APACHE;LICENSE-MIT
+derive_more,2.1.1,MIT,https://github.com/JelteF/derive_more,LICENSE
+derive_more-impl,2.1.1,MIT,https://github.com/JelteF/derive_more,LICENSE
+displaydoc,0.2.7,MIT OR Apache-2.0,https://github.com/yaahc/displaydoc,LICENSE-APACHE;LICENSE-MIT
+dpi,0.1.2,Apache-2.0 AND MIT,https://github.com/rust-windowing/winit,LICENSE;LICENSE-LIBM-MIT
+either,1.19.0,MIT OR Apache-2.0,https://github.com/rayon-rs/either,LICENSE-APACHE;LICENSE-MIT
+equivalent,1.0.3,Apache-2.0 OR MIT,https://github.com/indexmap-rs/equivalent,LICENSE-APACHE;LICENSE-MIT
+error-code,3.4.0,BSL-1.0,https://github.com/DoumanAsh/error-code,LICENSE
+euclid,0.22.14,MIT OR Apache-2.0,https://github.com/servo/euclid,COPYRIGHT;LICENSE-APACHE;LICENSE-MIT
+fastrand,2.5.0,Apache-2.0 OR MIT,https://github.com/smol-rs/fastrand,LICENSE-APACHE;LICENSE-MIT
+fdeflate,0.3.7,MIT OR Apache-2.0,https://github.com/image-rs/fdeflate,LICENSE-APACHE;LICENSE-MIT
+field-offset,0.3.6,MIT OR Apache-2.0,https://github.com/Diggsey/rust-field-offset,LICENSE-APACHE;LICENSE-MIT
+fixed_decimal,0.7.3,Unicode-3.0,https://github.com/unicode-org/icu4x,LICENSE
+flate2,1.1.10,MIT OR Apache-2.0,https://github.com/rust-lang/flate2-rs,LICENSE-APACHE;LICENSE-MIT
+float-cmp,0.9.0,MIT,https://github.com/mikedilger/float-cmp,LICENSE
+foldhash,0.2.0,Zlib,https://github.com/orlp/foldhash,LICENSE
+font-types,0.12.7,MIT OR Apache-2.0,https://github.com/googlefonts/fontations,LICENSE-APACHE;LICENSE-MIT
+fontdb,0.24.0,MIT,https://github.com/RazrFalcon/fontdb,LICENSE
+fontique,0.11.1,Apache-2.0 OR MIT,https://github.com/linebender/parley,LICENSE-APACHE;LICENSE-MIT
+form_urlencoded,1.2.2,MIT OR Apache-2.0,https://github.com/servo/rust-url,LICENSE-APACHE;LICENSE-MIT
+getrandom,0.4.3,MIT OR Apache-2.0,https://github.com/rust-random/getrandom,LICENSE-APACHE;LICENSE-MIT
+gif,0.14.2,MIT OR Apache-2.0,https://github.com/image-rs/image-gif,LICENSE-APACHE;LICENSE-MIT
+harfrust,0.12.0,MIT,https://github.com/harfbuzz/harfrust,LICENSE
+hashbrown,0.14.5,MIT OR Apache-2.0,https://github.com/rust-lang/hashbrown,LICENSE-APACHE;LICENSE-MIT
+hashbrown,0.16.1,MIT OR Apache-2.0,https://github.com/rust-lang/hashbrown,LICENSE-APACHE;LICENSE-MIT
+hashbrown,0.17.1,MIT OR Apache-2.0,https://github.com/rust-lang/hashbrown,LICENSE-APACHE;LICENSE-MIT
+heck,0.5.0,MIT OR Apache-2.0,https://github.com/withoutboats/heck,LICENSE-APACHE;LICENSE-MIT
+htmlparser,0.2.1,MIT OR Apache-2.0,https://github.com/jdrouet/htmlparser.git,LICENSE-APACHE;LICENSE-MIT
+i-slint-backend-selector,1.18.1,GPL-3.0-only OR LicenseRef-Slint-Royalty-free-2.0 OR LicenseRef-Slint-Software-3.0,https://github.com/slint-ui/slint,LICENSES
+i-slint-backend-winit,1.18.1,GPL-3.0-only OR LicenseRef-Slint-Royalty-free-2.0 OR LicenseRef-Slint-Software-3.0,https://github.com/slint-ui/slint,LICENSES
+i-slint-common,1.18.1,GPL-3.0-only OR LicenseRef-Slint-Royalty-free-2.0 OR LicenseRef-Slint-Software-3.0,https://github.com/slint-ui/slint,LICENSES
+i-slint-compiler,1.18.1,GPL-3.0-only OR LicenseRef-Slint-Royalty-free-2.0 OR LicenseRef-Slint-Software-3.0,https://github.com/slint-ui/slint,LICENSES
+i-slint-core,1.18.1,GPL-3.0-only OR LicenseRef-Slint-Royalty-free-2.0 OR LicenseRef-Slint-Software-3.0,https://github.com/slint-ui/slint,LICENSES
+i-slint-core-macros,1.18.1,GPL-3.0-only OR LicenseRef-Slint-Royalty-free-2.0 OR LicenseRef-Slint-Software-3.0,https://github.com/slint-ui/slint,LICENSES
+i-slint-renderer-software,1.18.1,GPL-3.0-only OR LicenseRef-Slint-Royalty-free-2.0 OR LicenseRef-Slint-Software-3.0,https://github.com/slint-ui/slint,LICENSES
+icu_collections,2.4.0,Unicode-3.0,https://github.com/unicode-org/icu4x,LICENSE
+icu_decimal,2.4.0,Unicode-3.0,https://github.com/unicode-org/icu4x,LICENSE
+icu_decimal_data,2.4.0,Unicode-3.0,https://github.com/unicode-org/icu4x,LICENSE
+icu_locale_core,2.4.0,Unicode-3.0,https://github.com/unicode-org/icu4x,LICENSE
+icu_locale_fallback,2.4.0,Unicode-3.0,https://github.com/unicode-org/icu4x,LICENSE
+icu_locale_fallback_data,2.4.0,Unicode-3.0,https://github.com/unicode-org/icu4x,LICENSE
+icu_normalizer,2.4.0,Unicode-3.0,https://github.com/unicode-org/icu4x,LICENSE
+icu_normalizer_data,2.4.0,Unicode-3.0,https://github.com/unicode-org/icu4x,LICENSE
+icu_properties,2.4.0,Unicode-3.0,https://github.com/unicode-org/icu4x,LICENSE
+icu_properties_data,2.4.0,Unicode-3.0,https://github.com/unicode-org/icu4x,LICENSE
+icu_provider,2.4.0,Unicode-3.0,https://github.com/unicode-org/icu4x,LICENSE
+icu_segmenter,2.4.0,Unicode-3.0,https://github.com/unicode-org/icu4x,LICENSE
+icu_segmenter_data,2.4.0,Unicode-3.0,https://github.com/unicode-org/icu4x,LICENSE
+idna,1.1.0,MIT OR Apache-2.0,https://github.com/servo/rust-url/,LICENSE-APACHE;LICENSE-MIT
+idna_adapter,1.2.2,Apache-2.0 OR MIT,https://github.com/hsivonen/idna_adapter,LICENSE-APACHE;LICENSE-MIT
+image,0.25.10,MIT OR Apache-2.0,https://github.com/image-rs/image,LICENSE-APACHE;LICENSE-MIT
+image-webp,0.2.4,MIT OR Apache-2.0,https://github.com/image-rs/image-webp,LICENSE-APACHE;LICENSE-MIT
+imagesize,0.15.0,MIT,https://github.com/Roughsketch/imagesize,LICENSE
+imgref,1.12.3,CC0-1.0 OR Apache-2.0,https://github.com/kornelski/imgref,LICENSE-APACHE;LICENSE-CC0
+indexmap,2.14.2,Apache-2.0 OR MIT,https://github.com/indexmap-rs/indexmap,LICENSE-APACHE;LICENSE-MIT
+itertools,0.15.0,MIT OR Apache-2.0,https://github.com/rust-itertools/itertools,LICENSE-APACHE;LICENSE-MIT
+itoa,1.0.18,MIT OR Apache-2.0,https://github.com/dtolnay/itoa,LICENSE-APACHE;LICENSE-MIT
+keyboard-types,0.7.0,MIT OR Apache-2.0,https://github.com/pyfisch/keyboard-types,LICENSE-APACHE;LICENSE-MIT
+kurbo,0.13.1,Apache-2.0 OR MIT,https://github.com/linebender/kurbo,LICENSE-APACHE;LICENSE-MIT
+libm,0.2.16,MIT,https://github.com/rust-lang/compiler-builtins,LICENSE.txt
+linebender_resource_handle,0.1.1,Apache-2.0 OR MIT,https://github.com/linebender/raw_resource_handle,LICENSE-APACHE;LICENSE-MIT
+litemap,0.8.3,Unicode-3.0,https://github.com/unicode-org/icu4x,LICENSE
+log,0.4.34,MIT OR Apache-2.0,https://github.com/rust-lang/log,LICENSE-APACHE;LICENSE-MIT
+lyon_algorithms,1.0.22,MIT OR Apache-2.0,https://github.com/nical/lyon,LICENSE-APACHE;LICENSE-MIT
+lyon_extra,1.1.0,MIT OR Apache-2.0,https://github.com/nical/lyon,LICENSE-APACHE;LICENSE-MIT
+lyon_geom,1.0.20,MIT OR Apache-2.0,https://github.com/nical/lyon,LICENSE-APACHE;LICENSE-MIT
+lyon_path,1.0.19,MIT OR Apache-2.0,https://github.com/nical/lyon,LICENSE-APACHE;LICENSE-MIT
+memchr,2.8.3,Unlicense OR MIT,https://github.com/BurntSushi/memchr,COPYING;LICENSE-MIT
+memmap2,0.9.12,MIT OR Apache-2.0,https://github.com/RazrFalcon/memmap2-rs,LICENSE-APACHE;LICENSE-MIT
+memoffset,0.9.1,MIT,https://github.com/Gilnaa/memoffset,LICENSE
+miniz_oxide,0.8.9,MIT OR Zlib OR Apache-2.0,https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide,LICENSE;LICENSE-APACHE.md;LICENSE-MIT.md;LICENSE-ZLIB.md
+miniz_oxide,0.9.1,MIT OR Zlib OR Apache-2.0,https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide,LICENSE;LICENSE-APACHE.md;LICENSE-MIT.md;LICENSE-ZLIB.md
+moxcms,0.8.1,BSD-3-Clause OR Apache-2.0,https://github.com/awxkee/moxcms.git,LICENSE-APACHE.md;LICENSE.md
+muda,0.19.3,Apache-2.0 OR MIT,https://github.com/tauri-apps/muda,LICENSE-APACHE;LICENSE-MIT;LICENSE.spdx
+num-traits,0.2.19,MIT OR Apache-2.0,https://github.com/rust-num/num-traits,LICENSE-APACHE;LICENSE-MIT
+num_enum,0.7.6,BSD-3-Clause OR MIT OR Apache-2.0,https://github.com/illicitonion/num_enum,LICENSE-APACHE;LICENSE-BSD;LICENSE-MIT
+num_enum_derive,0.7.6,BSD-3-Clause OR MIT OR Apache-2.0,https://github.com/illicitonion/num_enum,LICENSE-APACHE;LICENSE-BSD;LICENSE-MIT
+once_cell,1.21.4,MIT OR Apache-2.0,https://github.com/matklad/once_cell,LICENSE-APACHE;LICENSE-MIT
+parlance,0.1.1,Apache-2.0 OR MIT,https://github.com/linebender/parley,LICENSE-APACHE;LICENSE-MIT
+parley,0.11.1,Apache-2.0 OR MIT,https://github.com/linebender/parley,LICENSE-APACHE;LICENSE-MIT
+parley_data,0.11.1,Apache-2.0 OR MIT,https://github.com/linebender/parley,LICENSE-APACHE;LICENSE-MIT
+percent-encoding,2.3.2,MIT OR Apache-2.0,https://github.com/servo/rust-url/,LICENSE-APACHE;LICENSE-MIT
+pico-args,0.5.0,MIT,https://github.com/RazrFalcon/pico-args,LICENSE
+pin-project,1.1.13,Apache-2.0 OR MIT,https://github.com/taiki-e/pin-project,LICENSE-APACHE;LICENSE-MIT
+pin-project-internal,1.1.13,Apache-2.0 OR MIT,https://github.com/taiki-e/pin-project,LICENSE-APACHE;LICENSE-MIT
+pin-project-lite,0.2.17,Apache-2.0 OR MIT,https://github.com/taiki-e/pin-project-lite,LICENSE-APACHE;LICENSE-MIT
+pin-utils,0.1.1,MIT OR Apache-2.0,https://github.com/rust-lang/pin-utils,LICENSE-APACHE;LICENSE-MIT
+pin-weak,1.1.0,MIT,https://github.com/sixtyfpsui/pin-weak,LICENSE
+png,0.18.1,MIT OR Apache-2.0,https://github.com/image-rs/image-png,LICENSE-APACHE;LICENSE-MIT
+polycool,0.4.0,MIT OR Apache-2.0,https://github.com/linebender/kurbo,LICENSE-APACHE;LICENSE-MIT
+portable-atomic,1.15.0,Apache-2.0 OR MIT,https://github.com/taiki-e/portable-atomic,LICENSE-APACHE;LICENSE-MIT
+potential_utf,0.1.6,Unicode-3.0,https://github.com/unicode-org/icu4x,LICENSE
+proc-macro-crate,3.5.0,MIT OR Apache-2.0,https://github.com/bkchr/proc-macro-crate,LICENSE-APACHE;LICENSE-MIT
+proc-macro2,1.0.107,MIT OR Apache-2.0,https://github.com/dtolnay/proc-macro2,LICENSE-APACHE;LICENSE-MIT
+pulldown-cmark,0.13.5,MIT,https://github.com/raphlinus/pulldown-cmark,LICENSE
+pxfm,0.1.30,BSD-3-Clause OR Apache-2.0,https://github.com/awxkee/pxfm,LICENSE-APACHE.md;LICENSE.md
+quick-error,2.0.1,MIT/Apache-2.0,http://github.com/tailhook/quick-error,LICENSE-APACHE;LICENSE-MIT
+quote,1.0.47,MIT OR Apache-2.0,https://github.com/dtolnay/quote,LICENSE-APACHE;LICENSE-MIT
+raw-window-handle,0.6.2,MIT OR Apache-2.0 OR Zlib,https://github.com/rust-windowing/raw-window-handle,LICENSE-APACHE.md;LICENSE-MIT.md;LICENSE-ZLIB.md
+rayon,1.12.0,MIT OR Apache-2.0,https://github.com/rayon-rs/rayon,LICENSE-APACHE;LICENSE-MIT
+rayon-core,1.13.0,MIT OR Apache-2.0,https://github.com/rayon-rs/rayon,LICENSE-APACHE;LICENSE-MIT
+read-fonts,0.41.0,MIT OR Apache-2.0,https://github.com/googlefonts/fontations,LICENSE-APACHE;LICENSE-MIT
+resvg,0.48.1,Apache-2.0 OR MIT,https://github.com/linebender/resvg,LICENSE-APACHE;LICENSE-MIT
+rfd,0.17.2,MIT,https://github.com/PolyMeilex/rfd,LICENSE
+rgb,0.8.53,MIT,https://github.com/kornelski/rust-rgb,LICENSE
+rowan,0.17.0,MIT OR Apache-2.0,https://github.com/rust-analyzer/rowan,LICENSE-APACHE;LICENSE-MIT
+roxmltree,0.21.2,MIT OR Apache-2.0,https://github.com/RazrFalcon/roxmltree,LICENSE-APACHE;LICENSE-MIT
+rustc-hash,1.1.0,Apache-2.0/MIT,https://github.com/rust-lang-nursery/rustc-hash,LICENSE-APACHE;LICENSE-MIT
+rustc_version,0.4.1,MIT OR Apache-2.0,https://github.com/djc/rustc-version-rs,LICENSE-APACHE;LICENSE-MIT
+rustversion,1.0.23,MIT OR Apache-2.0,https://github.com/dtolnay/rustversion,LICENSE-APACHE;LICENSE-MIT
+scoped-tls-hkt,0.1.5,MIT/Apache-2.0,https://github.com/Diggsey/scoped-tls-hkt,LICENSE-APACHE;LICENSE-MIT
+scopeguard,1.2.0,MIT OR Apache-2.0,https://github.com/bluss/scopeguard,LICENSE-APACHE;LICENSE-MIT
+semver,1.0.28,MIT OR Apache-2.0,https://github.com/dtolnay/semver,LICENSE-APACHE;LICENSE-MIT
+serde,1.0.229,MIT OR Apache-2.0,https://github.com/serde-rs/serde,LICENSE-APACHE;LICENSE-MIT
+serde_core,1.0.229,MIT OR Apache-2.0,https://github.com/serde-rs/serde,LICENSE-APACHE;LICENSE-MIT
+serde_derive,1.0.229,MIT OR Apache-2.0,https://github.com/serde-rs/serde,LICENSE-APACHE;LICENSE-MIT
+serde_json,1.0.154,MIT OR Apache-2.0,https://github.com/serde-rs/json,LICENSE-APACHE;LICENSE-MIT
+simd-adler32,0.3.10,MIT,https://github.com/mcountryman/simd-adler32,LICENSE.md
+simplecss,0.2.2,Apache-2.0 OR MIT,https://github.com/linebender/simplecss,LICENSE-APACHE;LICENSE-MIT
+siphasher,1.0.4,MIT OR Apache-2.0,https://github.com/jedisct1/rust-siphash,COPYING;LICENSE-APACHE;LICENSE-MIT
+skrifa,0.44.0,MIT OR Apache-2.0,https://github.com/googlefonts/fontations,LICENSE-APACHE;LICENSE-MIT
+slab,0.4.12,MIT,https://github.com/tokio-rs/slab,LICENSE
+slint,1.18.1,GPL-3.0-only OR LicenseRef-Slint-Royalty-free-2.0 OR LicenseRef-Slint-Software-3.0,https://github.com/slint-ui/slint,LICENSES
+slint-macros,1.18.1,GPL-3.0-only OR LicenseRef-Slint-Royalty-free-2.0 OR LicenseRef-Slint-Software-3.0,https://github.com/slint-ui/slint,LICENSES
+slotmap,1.1.1,Zlib,https://github.com/orlp/slotmap,LICENSE
+smallvec,1.16.4,MIT OR Apache-2.0,https://github.com/servo/rust-smallvec,LICENSE-APACHE;LICENSE-MIT
+smol_str,0.2.2,MIT OR Apache-2.0,https://github.com/rust-analyzer/smol_str,LICENSE-APACHE;LICENSE-MIT
+smol_str,0.3.7,MIT OR Apache-2.0,https://github.com/rust-lang/rust-analyzer/tree/master/lib/smol_str,LICENSE-APACHE;LICENSE-MIT
+softbuffer,0.4.8,MIT OR Apache-2.0,https://github.com/rust-windowing/softbuffer,LICENSE-APACHE;LICENSE-MIT
+spin_on,0.1.1,Apache-2.0 OR MIT,,LICENSE-APACHE;LICENSE-MIT
+stable_deref_trait,1.2.1,MIT OR Apache-2.0,https://github.com/storyyeller/stable_deref_trait,LICENSE-APACHE;LICENSE-MIT
+strict-num,0.1.1,MIT,https://github.com/RazrFalcon/strict-num,LICENSE
+strum,0.28.0,MIT,https://github.com/Peternator7/strum,LICENSE
+strum_macros,0.28.0,MIT,https://github.com/Peternator7/strum,LICENSE
+svgtypes,0.16.1,Apache-2.0 OR MIT,https://github.com/linebender/svgtypes,LICENSE-APACHE;LICENSE-MIT
+swash,0.2.10,Apache-2.0 OR MIT,https://github.com/dfrg/swash,LICENSE-APACHE;LICENSE-MIT
+syn,2.0.119,MIT OR Apache-2.0,https://github.com/dtolnay/syn,LICENSE-APACHE;LICENSE-MIT
+syn,3.0.9,MIT OR Apache-2.0,https://github.com/dtolnay/syn,LICENSE-APACHE;LICENSE-MIT
+synstructure,0.14.0,MIT,https://github.com/mystor/synstructure,LICENSE
+sys-locale,0.3.2,MIT OR Apache-2.0,https://github.com/1Password/sys-locale,LICENSE-APACHE;LICENSE-MIT
+taffy,0.10.1,MIT,https://github.com/DioxusLabs/taffy,LICENSE.md
+tempfile,3.27.0,MIT OR Apache-2.0,https://github.com/Stebalien/tempfile,LICENSE-APACHE;LICENSE-MIT
+text-size,1.1.1,MIT OR Apache-2.0,https://github.com/rust-analyzer/text-size,LICENSE-APACHE;LICENSE-MIT
+thiserror,2.0.21,MIT OR Apache-2.0,https://github.com/dtolnay/thiserror,LICENSE-APACHE;LICENSE-MIT
+thiserror-impl,2.0.21,MIT OR Apache-2.0,https://github.com/dtolnay/thiserror,LICENSE-APACHE;LICENSE-MIT
+tiny-skia,0.12.0,BSD-3-Clause,https://github.com/linebender/tiny-skia,LICENSE
+tiny-skia-path,0.12.0,BSD-3-Clause,https://github.com/linebender/tiny-skia/tree/master/path,LICENSE
+tinystr,0.8.5,Unicode-3.0,https://github.com/unicode-org/icu4x,LICENSE
+tinyvec,1.13.3,Zlib OR Apache-2.0 OR MIT,https://github.com/Lokathor/tinyvec,LICENSE-APACHE.md;LICENSE-MIT.md;LICENSE-ZLIB.md
+toml_datetime,1.1.2+spec-1.1.0,MIT OR Apache-2.0,https://github.com/toml-rs/toml,LICENSE-APACHE;LICENSE-MIT
+toml_edit,0.25.17+spec-1.1.0,MIT OR Apache-2.0,https://github.com/toml-rs/toml,LICENSE-APACHE;LICENSE-MIT
+toml_parser,1.1.5+spec-1.1.0,MIT OR Apache-2.0,https://github.com/toml-rs/toml,LICENSE-APACHE;LICENSE-MIT
+tracing,0.1.44,MIT,https://github.com/tokio-rs/tracing,LICENSE
+tracing-core,0.1.36,MIT,https://github.com/tokio-rs/tracing,LICENSE
+typed-index-collections,3.5.0,MIT OR Apache-2.0,https://github.com/zheland/typed-index-collections,LICENSE-APACHE;LICENSE-MIT
+unicase,2.10.0,MIT OR Apache-2.0,https://github.com/seanmonstar/unicase,LICENSE-APACHE;LICENSE-MIT
+unicode-bidi,0.3.18,MIT OR Apache-2.0,https://github.com/servo/unicode-bidi,COPYRIGHT;LICENSE-APACHE;LICENSE-MIT
+unicode-ident,1.0.27,(MIT OR Apache-2.0) AND Unicode-3.0,https://github.com/dtolnay/unicode-ident,LICENSE-APACHE;LICENSE-MIT;LICENSE-UNICODE
+unicode-linebreak,0.1.5,Apache-2.0,https://github.com/axelf4/unicode-linebreak,LICENSE
+unicode-script,0.5.8,MIT OR Apache-2.0,https://github.com/unicode-rs/unicode-script,LICENSE-APACHE;LICENSE-MIT
+unicode-segmentation,1.13.3,MIT OR Apache-2.0,https://github.com/unicode-rs/unicode-segmentation,COPYRIGHT;LICENSE-APACHE;LICENSE-MIT
+unicode-vo,0.1.0,MIT/Apache-2.0,https://github.com/RazrFalcon/unicode-vo,LICENSE-APACHE;LICENSE-MIT
+unicode-width,0.2.2,MIT OR Apache-2.0,https://github.com/unicode-rs/unicode-width,COPYRIGHT;LICENSE-APACHE;LICENSE-MIT
+unicode-xid,0.2.6,MIT OR Apache-2.0,https://github.com/unicode-rs/unicode-xid,COPYRIGHT;LICENSE-APACHE;LICENSE-MIT
+url,2.5.8,MIT OR Apache-2.0,https://github.com/servo/rust-url,LICENSE-APACHE;LICENSE-MIT
+usvg,0.48.1,Apache-2.0 OR MIT,https://github.com/linebender/resvg,LICENSE-APACHE;LICENSE-MIT
+utf8_iter,1.0.4,Apache-2.0 OR MIT,https://github.com/hsivonen/utf8_iter,COPYRIGHT;LICENSE-APACHE;LICENSE-MIT
+version_check,0.9.5,MIT/Apache-2.0,https://github.com/SergioBenitez/version_check,LICENSE-APACHE;LICENSE-MIT
+vtable,0.5.0,MIT OR Apache-2.0,https://github.com/slint-ui/slint,LICENSES
+vtable-macro,0.5.0,MIT OR Apache-2.0,https://github.com/slint-ui/slint,LICENSES
+webbrowser,1.2.5,MIT OR Apache-2.0,https://github.com/amodm/webbrowser-rs,LICENSE-APACHE;LICENSE-MIT
+weezl,0.1.12,MIT OR Apache-2.0,https://github.com/image-rs/weezl,LICENSE-APACHE;LICENSE-MIT
+windows,0.62.2,MIT OR Apache-2.0,https://github.com/microsoft/windows-rs,license-apache-2.0;license-mit
+windows-collections,0.3.2,MIT OR Apache-2.0,https://github.com/microsoft/windows-rs,license-apache-2.0;license-mit
+windows-core,0.62.2,MIT OR Apache-2.0,https://github.com/microsoft/windows-rs,license-apache-2.0;license-mit
+windows-future,0.3.2,MIT OR Apache-2.0,https://github.com/microsoft/windows-rs,license-apache-2.0;license-mit
+windows-implement,0.60.2,MIT OR Apache-2.0,https://github.com/microsoft/windows-rs,license-apache-2.0;license-mit
+windows-interface,0.59.3,MIT OR Apache-2.0,https://github.com/microsoft/windows-rs,license-apache-2.0;license-mit
+windows-link,0.2.1,MIT OR Apache-2.0,https://github.com/microsoft/windows-rs,license-apache-2.0;license-mit
+windows-numerics,0.3.1,MIT OR Apache-2.0,https://github.com/microsoft/windows-rs,license-apache-2.0;license-mit
+windows-result,0.4.1,MIT OR Apache-2.0,https://github.com/microsoft/windows-rs,license-apache-2.0;license-mit
+windows-strings,0.5.1,MIT OR Apache-2.0,https://github.com/microsoft/windows-rs,license-apache-2.0;license-mit
+windows-sys,0.52.0,MIT OR Apache-2.0,https://github.com/microsoft/windows-rs,license-apache-2.0;license-mit
+windows-sys,0.61.2,MIT OR Apache-2.0,https://github.com/microsoft/windows-rs,license-apache-2.0;license-mit
+windows-targets,0.52.6,MIT OR Apache-2.0,https://github.com/microsoft/windows-rs,license-apache-2.0;license-mit
+windows-threading,0.2.1,MIT OR Apache-2.0,https://github.com/microsoft/windows-rs,license-apache-2.0;license-mit
+windows_x86_64_msvc,0.52.6,MIT OR Apache-2.0,https://github.com/microsoft/windows-rs,license-apache-2.0;license-mit
+winit,0.30.13,Apache-2.0,https://github.com/rust-windowing/winit,LICENSE
+winnow,1.0.4,MIT,https://github.com/winnow-rs/winnow,LICENSE-MIT
+writeable,0.6.4,Unicode-3.0,https://github.com/unicode-org/icu4x,LICENSE
+xmlwriter,0.1.0,MIT,https://github.com/RazrFalcon/xmlwriter,LICENSE
+yazi,0.2.1,Apache-2.0 OR MIT,https://github.com/dfrg/yazi,LICENSE-APACHE;LICENSE-MIT
+yoke,0.8.4,Unicode-3.0,https://github.com/unicode-org/icu4x,LICENSE
+yoke-derive,0.8.4,Unicode-3.0,https://github.com/unicode-org/icu4x,LICENSE
+zeno,0.3.3,Apache-2.0 OR MIT,https://github.com/dfrg/zeno,LICENSE-APACHE;LICENSE-MIT
+zerofrom,0.1.8,Unicode-3.0,https://github.com/unicode-org/icu4x,LICENSE
+zerofrom-derive,0.1.8,Unicode-3.0,https://github.com/unicode-org/icu4x,LICENSE
+zerotrie,0.2.5,Unicode-3.0,https://github.com/unicode-org/icu4x,LICENSE
+zerovec,0.11.9,Unicode-3.0,https://github.com/unicode-org/icu4x,LICENSE
+zerovec-derive,0.11.7,Unicode-3.0,https://github.com/unicode-org/icu4x,LICENSE
+zmij,1.0.23,MIT,https://github.com/dtolnay/zmij,LICENSE-MIT
+zune-core,0.5.3,MIT OR Apache-2.0 OR Zlib,https://github.com/etemesi254/zune-image,LICENSE-APACHE;LICENSE-MIT;LICENSE-ZLIB
+zune-jpeg,0.5.15,MIT OR Apache-2.0 OR Zlib,https://github.com/etemesi254/zune-image/tree/dev/crates/zune-jpeg,LICENSE-APACHE;LICENSE-MIT;LICENSE-ZLIB

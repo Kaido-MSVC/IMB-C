@@ -1,0 +1,62 @@
+[
+  {
+    "crate": "clipboard-win",
+    "version": "5.4.3",
+    "url": "https://raw.githubusercontent.com/DoumanAsh/clipboard-win/ed27008ae5d1f10cfbb266de039f0fb35fd05a56/LICENSE",
+    "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+  },
+  {
+    "crate": "lyon_algorithms",
+    "version": "1.0.22",
+    "url": "https://raw.githubusercontent.com/nical/lyon/db98d26a1a90076a7a894262dcb51117eef643c8/LICENSE-MIT",
+    "sha256": "80f275e90d799911ed3830a7f242a2ef5a4ade2092fe0aa07bfb2d2cf2f2b95e"
+  },
+  {
+    "crate": "lyon_algorithms",
+    "version": "1.0.22",
+    "url": "https://raw.githubusercontent.com/nical/lyon/db98d26a1a90076a7a894262dcb51117eef643c8/LICENSE-APACHE",
+    "sha256": "216486f29671a4262efe32af6d84a75bef398127f8c5f369b5c8305983887a06"
+  },
+  {
+    "crate": "lyon_extra",
+    "version": "1.1.0",
+    "url": "https://raw.githubusercontent.com/nical/lyon/56219c95c658d4f39de7b190d98e57d5773ba241/LICENSE-MIT",
+    "sha256": "80f275e90d799911ed3830a7f242a2ef5a4ade2092fe0aa07bfb2d2cf2f2b95e"
+  },
+  {
+    "crate": "lyon_extra",
+    "version": "1.1.0",
+    "url": "https://raw.githubusercontent.com/nical/lyon/56219c95c658d4f39de7b190d98e57d5773ba241/LICENSE-APACHE",
+    "sha256": "216486f29671a4262efe32af6d84a75bef398127f8c5f369b5c8305983887a06"
+  },
+  {
+    "crate": "lyon_geom",
+    "version": "1.0.20",
+    "url": "https://raw.githubusercontent.com/nical/lyon/db98d26a1a90076a7a894262dcb51117eef643c8/LICENSE-MIT",
+    "sha256": "80f275e90d799911ed3830a7f242a2ef5a4ade2092fe0aa07bfb2d2cf2f2b95e"
+  },
+  {
+    "crate": "lyon_geom",
+    "version": "1.0.20",
+    "url": "https://raw.githubusercontent.com/nical/lyon/db98d26a1a90076a7a894262dcb51117eef643c8/LICENSE-APACHE",
+    "sha256": "216486f29671a4262efe32af6d84a75bef398127f8c5f369b5c8305983887a06"
+  },
+  {
+    "crate": "lyon_path",
+    "version": "1.0.19",
+    "url": "https://raw.githubusercontent.com/nical/lyon/56219c95c658d4f39de7b190d98e57d5773ba241/LICENSE-MIT",
+    "sha256": "80f275e90d799911ed3830a7f242a2ef5a4ade2092fe0aa07bfb2d2cf2f2b95e"
+  },
+  {
+    "crate": "lyon_path",
+    "version": "1.0.19",
+    "url": "https://raw.githubusercontent.com/nical/lyon/56219c95c658d4f39de7b190d98e57d5773ba241/LICENSE-APACHE",
+    "sha256": "216486f29671a4262efe32af6d84a75bef398127f8c5f369b5c8305983887a06"
+  },
+  {
+    "crate": "taffy",
+    "version": "0.10.1",
+    "url": "https://raw.githubusercontent.com/DioxusLabs/taffy/639f0acdd20f914f847abffbeaa903d66cae4882/LICENSE.md",
+    "sha256": "a7083ef3dd41a65eeb2162c2c091b0082e2724fb4c6ed029b363c7840d244ecd"
+  }
+]

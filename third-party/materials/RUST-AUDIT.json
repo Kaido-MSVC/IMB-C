@@ -1,0 +1,4 @@
+{
+  "scope": "target-filtered resolve, includes build/proc-macro dependencies; conservative superset, not proof of linked code",
+  "missing_license_files": []
+}

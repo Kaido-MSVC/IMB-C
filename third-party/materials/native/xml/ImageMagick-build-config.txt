@@ -1,0 +1,58 @@
+[DYNAMIC_LIBRARY]
+
+[VERSION]
+2.15.4
+
+[RELEASE_DATE]
+2026-09-01
+
+[PRODUCT_NAME]
+libxml2
+
+[COMPANY_NAME]
+Daniel Veillard
+
+[URL]
+https://gitlab.gnome.org/GNOME/libxml2
+
+[COPYRIGHT]
+Copyright (C) 1998 Daniel Veillard
+
+[LICENSE_FILE]
+Copyright
+
+[LICENSE_IDENTIFIER]
+MIT
+
+[DEFINES]
+IN_LIBXML
+
+[STATIC_DEFINES]
+LIBXML_STATIC
+
+[INCLUDES]
+include
+
+[INCLUDE_ARTIFACTS]
+include\libxml -> libxml
+
+[EXCLUDES]
+lintmain.c
+nanohttp.c
+runsuite.c
+runtest.c
+runxmlconf.c
+xmlcatalog.c
+xmllint.c
+xpath.c
+example\
+fuzz\
+python\
+shell.c
+test
+
+[MAGICK_BASECONFIG_DEFINE]
+/*
+  Define to use the GNOME XML library
+*/
+#define MAGICKCORE_XML_DELEGATE

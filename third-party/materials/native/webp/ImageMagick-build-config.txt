@@ -1,0 +1,45 @@
+[DYNAMIC_LIBRARY]
+
+[VERSION]
+1.6.0
+
+[RELEASE_DATE]
+2025-07-09
+
+[PRODUCT_NAME]
+libwebp
+
+[COMPANY_NAME]
+Google Inc
+
+[URL]
+https://chromium.googlesource.com/webm/libwebp
+
+[COPYRIGHT]
+Copyright (c) 2010, Google Inc. All rights reserved.
+
+[LICENSE_FILE]
+COPYING
+
+[LICENSE_IDENTIFIER]
+BSD-3-Clause
+
+[DEFINES]
+_WEBPLIB_
+
+[INCLUDE_ARTIFACTS]
+src\webp -> webp
+
+[EXCLUDES]
+examples\
+extras\
+imageio\
+swig\
+tests\
+
+[MAGICK_BASECONFIG_DEFINE]
+/*
+  Define to use the WebP library
+*/
+#define MAGICKCORE_WEBP_DELEGATE
+#define MAGICKCORE_WEBPMUX_DELEGATE

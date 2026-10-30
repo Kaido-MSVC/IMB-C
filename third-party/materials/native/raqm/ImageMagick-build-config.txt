@@ -1,0 +1,50 @@
+[DYNAMIC_LIBRARY]
+
+[VERSION]
+0.11.0
+
+[RELEASE_DATE]
+2026-07-23
+
+[PRODUCT_NAME]
+libraqm
+
+[COMPANY_NAME]
+Information Technology Authority (ITA)
+
+[URL]
+https://github.com/HOST-Oman/libraqm
+
+[COPYRIGHT]
+Copyright © 2015 Information Technology Authority (ITA)
+
+[LICENSE_FILE]
+COPYING
+
+[LICENSE_IDENTIFIER]
+MIT
+
+[STATIC_DEFINES]
+FRIBIDI_LIB_STATIC
+
+[INCLUDE_ARTIFACTS]
+src\raqm.h -> .
+src\raqm-version.h -> .
+
+[MODULE_DEFINITION_FILE]
+.ImageMagick\raqm.def
+
+[EXCLUDES]
+subprojects\
+tests\
+
+[REFERENCES]
+freetype
+fribidi
+harfbuzz
+
+[MAGICK_BASECONFIG_DEFINE]
+/*
+  Define to use the raqm library
+*/
+#define MAGICKCORE_RAQM_DELEGATE

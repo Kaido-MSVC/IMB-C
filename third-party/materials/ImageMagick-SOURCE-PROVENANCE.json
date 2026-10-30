@@ -1,0 +1,7 @@
+{
+  "official_archive": "https://github.com/ImageMagick/ImageMagick/releases/download/7.1.2-34/ImageMagick-7.1.2-34-Windows.7z",
+  "bytes": 767686970,
+  "sha256": "e574618679e1d792b903979d52e5cf309ad24c24595cac7e29d4b30eb7707d4b",
+  "upstream_digest": "sha256:e574618679e1d792b903979d52e5cf309ad24c24595cac7e29d4b30eb7707d4b",
+  "selection": "ImageMagick, Configure, and all 16 runtime/build dependency directories; .git history and .github excluded. Not rebuilt here; local DLLs match version/SBOM, exact reproducibility not claimed."
+}

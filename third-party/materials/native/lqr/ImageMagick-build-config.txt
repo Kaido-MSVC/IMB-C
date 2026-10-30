@@ -1,0 +1,45 @@
+[DYNAMIC_LIBRARY]
+
+[VERSION]
+0.4.2
+
+[RELEASE_DATE]
+2012-12-04
+
+[PRODUCT_NAME]
+liblqr
+
+[COMPANY_NAME]
+Carlo Baldassi
+
+[URL]
+https://github.com/carlobaldassi/liblqr
+
+[COPYRIGHT]
+Copyright (C) 2007 Carlo Baldassi
+
+[LICENSE_FILE]
+COPYING.LESSER
+
+[LICENSE_IDENTIFIER]
+LGPL-3.0-or-later
+
+[DEFINES]
+LQR_EXPORTS
+
+[INCLUDE_ARTIFACTS]
+lqr -> lqr
+lqr\lqr.h -> .
+
+[EXCLUDES]
+docs\
+examples\
+
+[REFERENCES]
+glib
+
+[MAGICK_BASECONFIG_DEFINE]
+/*
+  Define to use the Liquid Rescale library
+*/
+#define MAGICKCORE_LQR_DELEGATE

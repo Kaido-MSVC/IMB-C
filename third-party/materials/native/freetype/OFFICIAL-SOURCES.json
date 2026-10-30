@@ -1,0 +1,65 @@
+[
+  {
+    "file": "FTL.TXT",
+    "url": "https://raw.githubusercontent.com/freetype/freetype/VER-2-14-3/docs/FTL.TXT",
+    "bytes": 6743,
+    "sha256": "5a5ee54c5001bbad1cdc1a57cc3dd4c42199b2da09d39c7ee41fab002d02967f",
+    "local_equal": false
+  },
+  {
+    "file": "LICENSE.TXT",
+    "url": "https://raw.githubusercontent.com/freetype/freetype/VER-2-14-3/LICENSE.TXT",
+    "bytes": 2149,
+    "sha256": "bd36c8b474855fa294c2ec5c184544478ef3720aad37d65a6296a4f264fd2d3b",
+    "local_equal": false
+  },
+  {
+    "file": "freetype.h",
+    "url": "https://raw.githubusercontent.com/freetype/freetype/VER-2-14-3/include/freetype/freetype.h",
+    "bytes": 177129,
+    "sha256": "fd45e7ee01c8f0f2419186d3fc9dd58e25cd866ef0c49f0b347c2d141665a364",
+    "local_equal": null
+  },
+  {
+    "file": "freetype-extra/src/bdf/README",
+    "url": "https://raw.githubusercontent.com/freetype/freetype/VER-2-14-3/src/bdf/README",
+    "bytes": 5972,
+    "sha256": "7984455e7e5a9faba3797c8bf095fbe10cc846316b7320aff8c58402e22b82fe"
+  },
+  {
+    "file": "freetype-extra/src/pcf/README",
+    "url": "https://raw.githubusercontent.com/freetype/freetype/VER-2-14-3/src/pcf/README",
+    "bytes": 3311,
+    "sha256": "18d9782898d9eac04476e2f744678137b2a889689ed3e923e052fc396a86f86b"
+  },
+  {
+    "file": "freetype-extra/src/gzip/zlib.h",
+    "url": "https://raw.githubusercontent.com/freetype/freetype/VER-2-14-3/src/gzip/zlib.h",
+    "bytes": 97499,
+    "sha256": "c86a25c27f74cb97b8fa07b175f479f063d5064ace9995b4684063643c81cf1b"
+  },
+  {
+    "file": "freetype-extra/src/autofit/ft-hb-ft.c",
+    "url": "https://raw.githubusercontent.com/freetype/freetype/VER-2-14-3/src/autofit/ft-hb-ft.c",
+    "bytes": 3315,
+    "sha256": "84dd5ddff1cec222e1755b4962faf45836238dfa3a46854dabd969eb4e50f8be"
+  },
+  {
+    "file": "freetype-extra/src/autofit/ft-hb-decls.h",
+    "url": "https://raw.githubusercontent.com/freetype/freetype/VER-2-14-3/src/autofit/ft-hb-decls.h",
+    "bytes": 5350,
+    "sha256": "ed05eec3b5657f98a0c106fa4aa2e5a4bc7f0864e5d34bd5989eee6d8b718bcf"
+  },
+  {
+    "file": "freetype-extra/src/autofit/ft-hb-types.h",
+    "url": "https://raw.githubusercontent.com/freetype/freetype/VER-2-14-3/src/autofit/ft-hb-types.h",
+    "bytes": 4139,
+    "sha256": "f106bf7cc41f52cd70907266a74a293c57bc5f71285b01c36bf198ad8b1c6234"
+  },
+  {
+    "file": "freetype-extra/src/autofit/hb-script-list.h",
+    "url": "https://raw.githubusercontent.com/freetype/freetype/VER-2-14-3/src/autofit/hb-script-list.h",
+    "bytes": 19854,
+    "sha256": "0627d9f6a59a8b09e562e8aeaf414300899308725350beeb50b62b8657399576"
+  }
+]

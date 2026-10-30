@@ -1,0 +1,51 @@
+[
+  {
+    "name": "sha2",
+    "version": "0.10.9",
+    "declared_license": "MIT OR Apache-2.0",
+    "selected_license": "MIT",
+    "texts": "licenses/rust/sha2-0.10.9"
+  },
+  {
+    "name": "block-buffer",
+    "version": "0.10.4",
+    "declared_license": "MIT OR Apache-2.0",
+    "selected_license": "MIT",
+    "texts": "licenses/rust/block-buffer-0.10.4"
+  },
+  {
+    "name": "cpufeatures",
+    "version": "0.2.17",
+    "declared_license": "MIT OR Apache-2.0",
+    "selected_license": "MIT",
+    "texts": "licenses/rust/cpufeatures-0.2.17"
+  },
+  {
+    "name": "crypto-common",
+    "version": "0.1.7",
+    "declared_license": "MIT OR Apache-2.0",
+    "selected_license": "MIT",
+    "texts": "licenses/rust/crypto-common-0.1.7"
+  },
+  {
+    "name": "digest",
+    "version": "0.10.7",
+    "declared_license": "MIT OR Apache-2.0",
+    "selected_license": "MIT",
+    "texts": "licenses/rust/digest-0.10.7"
+  },
+  {
+    "name": "generic-array",
+    "version": "0.14.7",
+    "declared_license": "MIT",
+    "selected_license": "MIT",
+    "texts": "licenses/rust/generic-array-0.14.7"
+  },
+  {
+    "name": "typenum",
+    "version": "1.20.1",
+    "declared_license": "MIT OR Apache-2.0",
+    "selected_license": "MIT",
+    "texts": "licenses/rust/typenum-1.20.1"
+  }
+]

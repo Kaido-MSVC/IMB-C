@@ -1,0 +1,30 @@
+[
+  {
+    "file": "Community-2026.docx",
+    "url": "https://visualstudio.microsoft.com/wp-content/uploads/2025/10/Visual_Studio_2026-License-Community_ENU.docx",
+    "version": "2025-10-01; VS2026_Comm_ENU.1033",
+    "sha256": "02ac07637f4a513a807cd3721c7620433fc483bc049d25784b0c10c54b05e1fb",
+    "retrieved": "2026-10-26 Asia/Taipei"
+  },
+  {
+    "file": "Runtime-2026.docx",
+    "url": "https://visualstudio.microsoft.com/wp-content/uploads/2025/10/Visual-C-V14-License-Redistributable_and_Runtime_ENU.docx",
+    "version": "2025-10-01; Cpp_v14_ENU.1033",
+    "sha256": "08651651a7602fc7c0e2763de0fde1ff9f868df2780597cd1775ee9d6441c783",
+    "retrieved": "2026-10-26 Asia/Taipei"
+  },
+  {
+    "file": "REDIST-2026.html",
+    "url": "https://learn.microsoft.com/en-us/visualstudio/releases/2026/redistribution",
+    "version": "Visual Studio 2026 REDIST; snapshot 2026-10-26",
+    "sha256": "597f748bfe99ab94b7c4f3bfb6f6f8524c4135a73bb14c84d52178feab8bf259",
+    "retrieved": "2026-10-26 Asia/Taipei"
+  },
+  {
+    "file": "Redistribute-VC-Files.html",
+    "url": "https://learn.microsoft.com/en-us/cpp/windows/redistributing-visual-cpp-files?view=msvc-170",
+    "version": "guidance; page last updated 2026-04-15",
+    "sha256": "6e9ae251a592aa267c198f5eb261d7e4a9e9c9e596f9306e7146aacafaf8eaf8",
+    "retrieved": "2026-10-26 Asia/Taipei"
+  }
+]

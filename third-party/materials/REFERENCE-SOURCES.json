@@ -1,0 +1,22 @@
+[
+  {
+    "file": "Microsoft-Redistribution.html",
+    "url": "https://aka.ms/vs/18/redistribution",
+    "sha256": "d53ea1fba6d805dc2f244db29692c3a4c191aa177d0f015a494eb3f58b09cb2f"
+  },
+  {
+    "file": "Microsoft-VC-Runtime-Guidance.html",
+    "url": "https://learn.microsoft.com/en-us/cpp/windows/redistributing-visual-cpp-files?view=msvc-170",
+    "sha256": "f274bfb50c8ac09138a91db60c81955ddc02d16728abb1547aee9b76901247e9"
+  },
+  {
+    "file": "Windows-Build-README.md",
+    "url": "https://raw.githubusercontent.com/ImageMagick/Windows/main/Readme.md",
+    "sha256": "d4d76118913cdd4d4c9929a73003261c6c47ee15b5e8a79b91b59b49ed892785"
+  },
+  {
+    "file": "Windows-Directory.Build.props",
+    "url": "https://raw.githubusercontent.com/ImageMagick/Windows/main/Directory.Build.props",
+    "sha256": "94f4bce162e9ee21a555c2a4b37291869da9a41e3e83ea439f0b380e9cd9fd3c"
+  }
+]

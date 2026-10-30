@@ -1,0 +1,51 @@
+[DYNAMIC_LIBRARY]
+
+[VERSION]
+2.19.1
+
+[RELEASE_DATE]
+2026-05-06
+
+[PRODUCT_NAME]
+lcms
+
+[COMPANY_NAME]
+Little CMS
+
+[URL]
+https://www.littlecms.com
+
+[COPYRIGHT]
+Copyright (c) 1998-2014 Marti Maria Saguer
+
+[LICENSE_FILE]
+LICENSE
+
+[LICENSE_IDENTIFIER]
+MIT
+
+[DEFINES]
+_LCMSLIB_
+
+[INCLUDES]
+include
+
+[INCLUDE_ARTIFACTS]
+include -> .
+
+[EXCLUDES]
+bin\
+doc\
+fuzzers\
+Lib\
+plugins\
+testbed\
+utils\
+
+
+[MAGICK_BASECONFIG_DEFINE]
+/*
+  Define to use the "little" Color Management System (LCMS) library
+*/
+#define MAGICKCORE_LCMS_DELEGATE
+#define MAGICKCORE_HAVE_LCMS2_H

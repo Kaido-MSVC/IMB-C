@@ -1,0 +1,43 @@
+[DYNAMIC_LIBRARY]
+
+[VERSION]
+1.3.2
+
+[RELEASE_DATE]
+2026-02-17
+
+[PRODUCT_NAME]
+zlib
+
+[COMPANY_NAME]
+Mark Adler
+
+[URL]
+https://github.com/madler/zlib
+
+[COPYRIGHT]
+Copyright (C) 1995 Mark Adler
+
+[LICENSE_FILE]
+LICENSE
+
+[LICENSE_IDENTIFIER]
+Zlib
+
+[DYNAMIC_DEFINES]
+ZLIB_DLL
+
+[INCLUDE_ARTIFACTS]
+zconf.h -> .
+zlib.h -> .
+
+[EXCLUDES]
+contrib\
+examples\
+test\
+
+[MAGICK_BASECONFIG_DEFINE]
+/*
+  Define to use the zlib ZIP compression library
+*/
+#define MAGICKCORE_ZLIB_DELEGATE

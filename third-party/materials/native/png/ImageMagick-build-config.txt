@@ -1,0 +1,63 @@
+[DYNAMIC_LIBRARY]
+
+[VERSION]
+1.6.59
+
+[RELEASE_DATE]
+2026-09-28
+
+[PRODUCT_NAME]
+libpng
+
+[COMPANY_NAME]
+The PNG Development Group
+
+[URL]
+https://github.com/pnggroup/libpng
+
+[COPYRIGHT]
+Copyright (c) Glenn Randers-Pehrson
+
+[LICENSE_FILE]
+LICENSE
+
+[LICENSE_IDENTIFIER]
+libpng-2.0
+
+[DEFINES]
+_PNGLIB_
+__WIN32DLL__
+__WIN32__
+__FLAT__
+PNG_NO_MODULEDEF
+
+[INCLUDE_ARTIFACTS]
+png.h -> .
+pngconf.h -> .
+pnglibconf.h -> .
+
+[DYNAMIC_DEFINES]
+PNG_BUILD_DLL
+
+[EXCLUDES]
+arm\
+contrib\
+intel\
+loongarch\
+mips\
+powerpc\
+projects\
+riscv\
+scripts\
+tests\
+example.c
+pngtest.c
+
+[REFERENCES]
+zlib
+
+[MAGICK_BASECONFIG_DEFINE]
+/*
+  Define to use the PNG library
+*/
+#define MAGICKCORE_PNG_DELEGATE

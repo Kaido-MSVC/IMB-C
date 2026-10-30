@@ -1,0 +1,17 @@
+{
+  "retrieved": "2026-10-27",
+  "sources": [
+    {
+      "name": "libheif-1.23.6.zip",
+      "url": "https://codeload.github.com/strukturag/libheif/zip/refs/tags/v1.23.6",
+      "sha256": "18b645eb85fdadafbd9443c4fbfadb220f8e5cd1ea28ca76c973ff2c90689bdb"
+    },
+    {
+      "name": "libaom-3.15.2.tar.gz",
+      "url": "https://storage.googleapis.com/aom-releases/libaom-3.15.2.tar.gz",
+      "sha256": "67bb54b245f33ed98600e08269e6139986e48114e14042474ddd8885801dfddc"
+    }
+  ],
+  "modified_source_sha256": "770d4740c72b827b6bb94315fd6942d545303d0fc7761f953455518bd737842c",
+  "linked_third_party": "AOM archive includes fastfeat and vector objects; notices retained. libyuv/libwebm tools built but not delivered; do not infer runtime presence from build-only files."
+}

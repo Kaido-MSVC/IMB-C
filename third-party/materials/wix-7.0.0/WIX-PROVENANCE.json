@@ -1,0 +1,10 @@
+{
+  "url": "https://codeload.github.com/wixtoolset/wix/zip/refs/tags/v7.0.0",
+  "tag": "v7.0.0",
+  "date": "2026-10-29 Asia/Taipei",
+  "bytes": 12440944,
+  "sha256": "1239d8baf2d70fcd6a43516a6649055f9fc59b816d0d2cdafe2b078e540e696f",
+  "zip_crc": "PASS",
+  "executed": false,
+  "scope": "Official full tagged repository snapshot including UI source, artwork and original notices; no claim of reproducible WiX binary build."
+}
