@@ -1,6 +1,18 @@
 # IMB-C v1.3.0
 
-Copyright (c) 2026 Kaido-MSVC。IMB-C 應用程式原始碼採 [MIT 授權](LICENSE)。ImageMagick、libjxl、Slint、FreeType、Microsoft VC++ Runtime 等第三方元件各有自己的授權與散布條件，並未改為 MIT；詳見 THIRD-PARTY-LICENSES-v1.3.0.md。文件中的 `licenses/` 路徑指完整二進位封包，原始碼儲存庫中的原文材料位於 `third-party/materials/`；大型相應來源封存另由完整來源包提供。此儲存庫尚未公開，正式發行封包亦須完成獨立驗收。
+Copyright (c) 2026 Kaido-MSVC。IMB-C 應用程式原始碼採 [MIT 授權](LICENSE)。ImageMagick、libjxl、Slint、FreeType、Microsoft VC++ Runtime 等第三方元件各有自己的授權與散布條件，並未改為 MIT；詳見 [第三方授權清單](THIRD-PARTY-LICENSES-v1.3.0.md)。文件中的 `licenses/` 路徑指完整二進位封包，原始碼儲存庫中的原文材料位於 `third-party/materials/`；大型相應來源封存另由完整來源包提供。
+
+## 下載
+
+從 [v1.3.0 Release](https://github.com/Kaido-MSVC/IMB-C/releases/tag/v1.3.0) 下載 Portable ZIP、Windows x64 MSI、完整相應來源 ZIP 及 `SHA256SUMS.txt`。GitHub 自動產生的 Source code ZIP 不包含大型第三方相應來源；需要重建或履行 LGPL 散布義務時，請使用另附的完整相應來源包與封包內的來源／替換材料。
+
+此版沿用已驗收候選的程式與封包 bytes。附件內保留部分歷史 Personal-Use／candidate 名稱、好友交付與當時審查文字；本次正式發行頁及本 README 取代發行者自行規定的舊交付程序，並不修改第三方授權原文，也不表示第三方元件一律可以任意轉交。未簽章，請先核對 SHA-256。
+
+## Microsoft Runtime 條款
+
+使用隨附 Microsoft Runtime 前，請閱讀並同意[完整 Runtime 使用條款](third-party/materials/microsoft/Runtime-2026.txt)。依官方條款，使用軟體表示接受；若不同意，請勿使用。MSI 安裝時另有完整條款及同意畫面。Microsoft Runtime 維持專有授權，不適用本專案 MIT。
+
+後續散布者須自行具備適用的 Microsoft 再散布權利，並要求其散布者及外部使用者同意至少同等保護 Microsoft 元件的條款；本次下載不另授予 Microsoft 元件的獨立再散布權。參閱 [Community 原文](third-party/materials/microsoft/Community-2026.txt) 與 [2026 REDIST](https://learn.microsoft.com/en-us/visualstudio/releases/2026/redistribution)。LGPL 元件的修改、替換及為偵錯修改所需反向工程權利仍保留。
 
 解壓完整可攜資料夾，執行 imb-c.exe。保留 ImageMagick、JXL、licenses、source 及完整條款。
 
@@ -28,4 +40,4 @@ Rust/cargo 1.99.1（不升級）；edition 2024，依 Cargo.lock 使用原依賴
 2026-10-29 最終驗收：8-bit 來源套用目標 ICC 時，PNG/TIFF/JXL/PSD 改用 16-bit，避免輸出量化使無損驗證拒絕。驗證以要求轉換後的基準比較。含 EXIF/XMP/ICC/COM 的 baseline/progressive JPEG 經專用 JXL 工具後 bytes 與 SHA-256 完全一致。新增可重現測試 `cargo run --locked --bin acceptance-v13 -- <專案絕對路徑>`。詳 ACCEPTANCE-v1.3.0.md。
 
 ## 2026-10-30 最後授權審查
-自有程式碼 MIT 署名為 Kaido-MSVC。FreeType 2.14.3 固定版原文已核對，Microsoft Runtime 發行者個人資格由本人確認，五份 DLL 與正式 Redist 相同。詳 LICENSE-REVIEW-v1.3.0.md。公開來源候選可供審閱；含 Runtime 的 Portable/MSI 仍沿用先同意後交付流程，不能直接當成無條件公開下載的發行包。
+自有程式碼 MIT 署名為 Kaido-MSVC。FreeType 2.14.3 固定版原文已核對，Microsoft Runtime 發行者個人資格由本人確認，五份 DLL 與正式 Redist 相同。歷史材料核對詳 LICENSE-REVIEW-v1.3.0.md；本次公開發行的告知與使用條款見上方「Microsoft Runtime 條款」，不沿用歷史逐一好友交付流程。

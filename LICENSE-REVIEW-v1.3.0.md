@@ -1,5 +1,7 @@
 # IMB-C v1.3.0 最後授權審查（2026-10-30）
 
+> 歷史審查紀錄。本次公開發行的程序告知以 README 與 v1.3.0 Release notes 為準。下文對既有好友交付程序的 NO-GO 判斷不代表 Microsoft 要求 GitHub 下載前勾選同意；官方要求外部使用者與散布者同意保護 Distributable Code 的條款，未指定該種下載機制。原始材料、來源與本人資格核對結果仍沿用；第三方條款本身未變。
+
 |項目|判斷|依據與界線|
 |---|---|---|
 |MIT 署名／metadata|GO|本人指定 Copyright (c) 2026 Kaido-MSVC；LICENSE、README、Cargo.toml 一致。MIT 只涵蓋自有程式碼。|
