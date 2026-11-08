@@ -2,6 +2,20 @@
 
 Copyright (c) 2026 Kaido-MSVC。IMB-C 應用程式原始碼採 [MIT 授權](LICENSE)。ImageMagick、libjxl、Slint、FreeType、Microsoft VC++ Runtime 等第三方元件各有自己的授權與散布條件，並未改為 MIT；詳見 [第三方授權清單](THIRD-PARTY-LICENSES-v1.3.0.md)。文件中的 `licenses/` 路徑指完整二進位封包，原始碼儲存庫中的原文材料位於 `third-party/materials/`；大型相應來源封存另由完整來源包提供。
 
+## 繁體中文介紹
+
+IMB-C 是 Windows x64 的本機批次圖片轉換工具，以 Rust 和 Slint 開發，使用 ImageMagick 處理圖片。可輸出 WebP、PNG、JPEG、AVIF、PSD、TIFF 和 JPEG XL（JXL）。批次處理會保留原始檔案，同名輸出會自動編號。
+
+轉換預設保留 ICC 色彩描述檔，也可指定目標 ICC 進行色彩轉換。程式會解碼驗證每份輸出，位深與無損支援依輸出格式而異。另有獨立的 JXL 工具可封裝與還原原始 JPEG 位元組，封裝時會還原並比對 SHA-256。介面可切換繁體中文、簡體中文、英文及日文，並記住選擇。
+
+## English overview
+
+IMB-C is a local batch image converter for Windows x64, built with Rust and Slint and powered by ImageMagick. It outputs WebP, PNG, JPEG, AVIF, PSD, TIFF, and JPEG XL (JXL). Source files are preserved, and output names are numbered automatically to avoid overwriting files.
+
+IMB-C retains ICC profiles by default and can convert colors to a selected target profile. It decodes each output to verify it. Bit depth and lossless support depend on the output format. A dedicated JXL tool can pack and reconstruct the original JPEG bytes, with SHA-256 verification on packing. The interface supports Traditional Chinese, Simplified Chinese, English, and Japanese and remembers your selection.
+
+The application code is [MIT-licensed](LICENSE). Bundled components have separate terms. Read the [third-party notices](THIRD-PARTY-LICENSES-v1.3.0.md) and the [Microsoft Runtime terms](#microsoft-runtime-條款) below before using the package.
+
 ## 下載
 
 從 [v1.3.0 Release](https://github.com/Kaido-MSVC/IMB-C/releases/tag/v1.3.0) 下載 Portable ZIP、Windows x64 MSI、完整相應來源 ZIP 及 `SHA256SUMS.txt`。GitHub 自動產生的 Source code ZIP 不包含大型第三方相應來源；需要重建或履行 LGPL 散布義務時，請使用另附的完整相應來源包與封包內的來源／替換材料。
