@@ -22,6 +22,6 @@
 
 ## 正式封裝增補：WiX 7.0.0
 
-2026-10-29：WiX / UI extension 7.0.0 的 Microsoft Reciprocal License、OSMFEULA、官方完整來源與本版安裝 UI 定義，均直接附於安裝後的 licenses/wix-7.0.0；應用來源包亦含 third-party/materials/wix-7.0.0 與 installer/wix7-v1.3.0。完整原文已納入 MSI 授權畫面。WiX 衍生安裝定義依 MS-RL 提供，其他元件授權不變。舊 evidence 路徑為歷史引用；現行操作依 INSTALL-v1.3.0.md 與正式封裝報告。
+2026-10-29：WiX / UI extension 7.0.0 的 Microsoft Reciprocal License、OSMFEULA、官方完整來源與本版安裝 UI 定義，均直接附於安裝後的 licenses/wix-7.0.0；應用來源包亦含 third-party/materials/wix-7.0.0 與 installer/wix7-v1.3.0。完整原文已納入 MSI 授權畫面。WiX 衍生安裝定義依 MS-RL 提供，其他元件授權不變。舊 evidence 路徑為歷史引用；現行操作依 INSTALL.md 與正式封裝報告。
 
 2026-10-30：FreeType 固定版原文與致謝、Microsoft DLL 來源及本人個人資格完成複核；公開二進位仍受接收流程限制。詳 LICENSE-REVIEW-v1.3.0.md。

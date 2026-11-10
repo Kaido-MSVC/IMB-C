@@ -124,7 +124,7 @@ portable-atomic,1.15.0,Apache-2.0 OR MIT,https://github.com/taiki-e/portable-ato
 potential_utf,0.1.6,Unicode-3.0,https://github.com/unicode-org/icu4x,LICENSE
 proc-macro-crate,3.5.0,MIT OR Apache-2.0,https://github.com/bkchr/proc-macro-crate,LICENSE-APACHE;LICENSE-MIT
 proc-macro2,1.0.107,MIT OR Apache-2.0,https://github.com/dtolnay/proc-macro2,LICENSE-APACHE;LICENSE-MIT
-pulldown-cmark,0.13.5,MIT,https://github.com/raphlinus/pulldown-cmark,LICENSE
+pulldown-cmark,0.13.6,MIT,https://github.com/raphlinus/pulldown-cmark,LICENSE
 pxfm,0.1.30,BSD-3-Clause OR Apache-2.0,https://github.com/awxkee/pxfm,LICENSE-APACHE.md;LICENSE.md
 quick-error,2.0.1,MIT/Apache-2.0,http://github.com/tailhook/quick-error,LICENSE-APACHE;LICENSE-MIT
 quote,1.0.47,MIT OR Apache-2.0,https://github.com/dtolnay/quote,LICENSE-APACHE;LICENSE-MIT

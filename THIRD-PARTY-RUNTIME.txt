@@ -1,0 +1,130 @@
+v1.2 additions (2026-10-28):
+TIFF: libtiff 4.7.2 (Sam Leffler; Silicon Graphics, Inc.), libtiff license.
+liblzma 5.8.4: Copyright (C) The XZ Utils authors and contributors, 0BSD for liblzma (not the upstream full-SBOM LGPL classification).
+Zstandard 1.5.7: Copyright Meta Platforms, Inc. and affiliates, BSD-3-Clause selected.
+ImageMagick JPEG XL delegate: libjxl 0.12.0, Copyright the JPEG XL Project Authors, BSD-3-Clause; Brotli 1.2.0, Copyright the Brotli Authors, MIT; Highway, Apache-2.0 (full notices retained conservatively).
+Dedicated cjxl/djxl: official libjxl 0.12.0 Windows x64 static release. License set includes libjxl, Brotli, Highway, giflib, libjpeg-turbo, libpng, libwebp, sjpeg, skcms and zlib. Only cjxl.exe and djxl.exe are shipped; both import Windows KERNEL32.dll only.
+Full new native license texts: licenses/v12-native and licenses/jxl-tools (including AUTHORS and PATENTS). Existing lcms/zlib/JPEG/WebP licenses remain in licenses/native.
+Rust SHA-256: sha2 0.10.9, block-buffer 0.10.4, crypto-common 0.1.7, digest 0.10.7, cpufeatures 0.2.17, typenum 1.20.1 (MIT selected); generic-array 0.14.7 (MIT). Full copyright and license texts: licenses/rust/<crate-version>.
+No Microsoft Runtime license change: existing explicit recipient acceptance process still applies before delivery.
+
+v1.1 新增：libheif 1.23.6，Copyright (c) 2017 Dirk Farin 及各來源檔作者；LGPL-3.0-or-later。
+修改日期 2026-10-27：僅 AOM AVIF codec、encoder 預設一執行緒；關閉 HEVC/AVC codec 與 plugin 載入。
+libaom 3.15.2，Copyright (c) 2016 Alliance for Open Media；BSD-2-Clause，另附 PATENTS。
+授權全文、作者、對應原始碼與重建材料見 licenses/avif、AVIF-REBUILD.md。
+允許修改、替換及為偵錯該等修改所需的反向工程；這些元件不附擔保。
+
+IMB-C 使用 ImageMagick 7.1.2-34 與以下 LGPL 共享函式庫。
+ImageMagick: Copyright ImageMagick Studio LLC；完整原文見 ImageMagick/NOTICE.txt、ImageMagick/License.txt。
+GLib 2.64.3：Copyright © 2011 Canonical Limited，以及各來源檔記載的作者；LGPL-2.1-or-later。
+FriBidi 1.0.17：Copyright (C) 2004 Sharif FarsiWeb, Inc；2001,2002 Behdad Esfahbod；1999,2000 Dov Grobgeld，以及各來源檔記載的作者；LGPL-2.1-or-later。
+liblqr 0.4.2：Copyright (C) 2007-2009 Carlo Baldassi (the Author)。All Rights Reserved. LGPL v3。
+這些函式庫依各自授權提供，不附適售性或特定用途適用性的擔保。
+完整作者／版權原文保留於隨包來源，不以此摘要取代。
+
+授權全文（Portable 根目錄的相對路徑）：
+GLib：licenses/native/glib/COPYING（LGPL 2.1）
+FriBidi：licenses/native/fribidi/COPYING（LGPL 2.1）
+liblqr：licenses/native/lqr/COPYING（GPL v3）及 COPYING.LESSER（LGPL v3）
+對應來源：licenses/ImageMagick-7.1.2-34-selected-corresponding-source.zip
+重建及替換：LGPL-REPLACEMENT.md、evidence/lgpl/LGPL-REBUILD.ps1。
+允許修改、替換 LGPL 函式庫及為偵錯該等修改所需的反向工程；Microsoft Runtime 接收條款限制不適用上述 LGPL 元件。
+
+以下為各專案原 AUTHORS：
+--- glib AUTHORS ---
+Below are just a few of the people who have contributed
+to GLib. Please don't mail these people about problems you
+have with GLib; see the README.md file for information about
+filing bugs and submitting changes.
+
+GLib-2.0 Team
+-------------
+Hans Breuer        <hans@breuer.org>
+Matthias Clasen    <mclasen@redhat.com>
+Tor Lillqvist      <tml@iki.fi>
+Tim Janik          <timj@gtk.org>
+Havoc Pennington   <hp@redhat.com> 
+Ron Steinke        <rsteinke@w-link.net>
+Owen Taylor        <otaylor@redhat.com>
+Sebastian Wilhelmi <seppi@seppi.de>
+
+GLib-1.2 Team
+-------------
+Shawn T. Amundson  <amundson@gimp.org>
+Jeff Garzik        <jgarzik@pobox.com>
+Raja R Harinath    <harinath@cs.umn.edu>
+Tim Janik          <timj@gtk.org>
+Elliot Lee         <sopwith@redhat.com>
+Tor Lillqvist      <tml@iki.fi>
+Paolo Molaro       <lupus@debian.org>
+Havoc Pennington   <hp@pobox.com>
+Manish Singh       <yosh@gimp.org>
+Owen Taylor        <otaylor@gtk.org>
+Sebastian Wilhelmi <wilhelmi@ira.uka.de>
+
+The random number generator "Mersenne Twister", which is used by GLib,
+was developed and originally coded by:
+Makoto Matsumoto   <matumoto@math.keio.ac.jp>
+Takuji Nishimura   <nisimura@math.keio.ac.jp>
+
+Original Authors
+----------------
+Peter Mattis       <petm@xcf.berkeley.edu>
+Spencer Kimball    <spencer@xcf.berkeley.edu>
+Josh MacDonald     <jmacd@xcf.berkeley.edu>
+
+--- fribidi AUTHORS ---
+Behdad Esfahbod <behdad@gnu.org>
+#
+# Behdad Esfahbod maintained the entire 0.19 series. He designed, and
+# implemented most of what is in FriBidi today.
+#
+
+Dov Grobgeld <dov.grobgeld@gmail.com>
+#
+# Dov Grobgeld originally wrote FriBidi.  The 0.1.* releases were all done
+# by him.  After the a long time of not being involved, Dov received
+# back the maintenance of the package in time for the 1.0 release.
+# He did the entire algorithmic work to support the changes made
+# to the Unicode algorithm in the Unicode 6.3 standard.
+#
+
+Roozbeh Pournader <roozbeh@gnu.org>
+#
+# Roozbeh Pournader hasn't contributed much code to FriBidi personally; but
+# has maintained, promoted, and supported the project for a while.  He has
+# helped with making GNU FriBidi standards compliant, and has sometimes
+# lobbied with the Unicode Consortium when needed.  Roozbeh was supposed to
+# be a co-maintainer of GNU FriBidi, but he's not doing that yet.
+#
+
+Khaled Hosny <khaledhosny@eglug.org>
+#
+# Khaled Hosny has done lots of cleanup and autoconfig work.
+
+# Note: Other people have contributed significant amounts of code, but
+# usually the code has faded out because of restructuring and redesigning
+# things around GNU FriBidi.  As an example, the FriBidiEnv patch by Omer
+# Zak, made itself into FriBidi CVS for a couple of years, but was finally
+# implemented in a better way by Behdad.
+#
+# Note: GNU getopt is distributed with and used in GNU FriBidi under bin/, but
+# is not part of GNU FriBidi.
+#
+# Note: Parts of the Unicode Character Database are distributed with and used
+# in GNU FriBidi under gen.tab/unidata/, but are not part of GNU FriBidi.
+#
+
+--- lqr AUTHORS ---
+Carlo Baldassi <carlobaldassi@gmail.com>
+
+v1.1.1 Personal-Use personal-r2 現況：主視窗及關於視窗標示為個人版；僅修正文案並重新編譯，轉換核心不變。套件含 28 個 PE、五個 coder、heif.dll 與五份 Microsoft Runtime（含 MSVCP140.dll）。本完整摘要亦編入 EXE。Microsoft Runtime 完整官方條款見 RUNTIME-RECIPIENT-TERMS.md、licenses/microsoft/Runtime-2026.docx；好友交付見 RUNTIME-HANDOFF.md，先取得完整條款明確接受後才提供套件。這些條款只適用 Microsoft 元件，不限制上述 LGPL 權利。歷史驗證報告保留原時點狀態；本次文字修訂及重建紀錄見 PERSONAL-R2-RELEASE.md。
+
+
+IMB-C v1.3.0 additional ImageMagick modules (2026-10-29):
+IM_MOD_RL_miff_.dll, IM_MOD_RL_meta_.dll, IM_MOD_RL_rgb_.dll.
+Unmodified official ImageMagick 7.1.2-34 Q16-HDRI modules, same MagickCore SHA-256 as the baseline.
+License: ImageMagick License; existing full license/notice copies remain provided.
+Corresponding source: licenses/ImageMagick-7.1.2-34-selected-corresponding-source.zip, coders/miff.c, meta.c, rgb.c.
+Imports use already bundled MagickCore, bzip2, lzma, zlib and the existing Microsoft Runtime; no new library or Runtime license terms.
+Exact hashes/provenance: NATIVE-ADDITIONS-v1.3.json. Rust dependency versions unchanged.

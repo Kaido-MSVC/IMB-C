@@ -2,6 +2,8 @@ $ErrorActionPreference = 'Stop'
 Push-Location (Split-Path $PSScriptRoot)
 $priorRustFlags = $env:RUSTFLAGS
 try {
+    python -X utf8 (Join-Path $PSScriptRoot 'prepare-v13-runtime.py')
+    if ($LASTEXITCODE -ne 0) { throw 'Private runtime preflight failed' }
     $projectRoot = (Get-Location).Path
     $userProfilePath = [Environment]::GetFolderPath('UserProfile')
     $env:RUSTFLAGS = "$priorRustFlags --remap-path-prefix=$projectRoot=. --remap-path-prefix=$userProfilePath=/build-user"

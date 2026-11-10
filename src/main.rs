@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod batch_warnings;
 mod engine;
 mod i18n;
 mod imports;
@@ -85,6 +86,31 @@ slint::slint! {
             TextEdit { text: root.result; read-only: true; vertical-stretch: 1; }
         }
     }
+    export component WarningWindow inherits Window {
+        in property <[string]> words;
+        title: "IMB-C · " + root.words[55];
+        icon: @image-url("../assets/app.png");
+        preferred-width: 800px; preferred-height: 600px;
+        in-out property <string> summary;
+        in-out property <string> report-path;
+        in-out property <string> report-error;
+        in-out property <string> content;
+        in-out property <int> page: 0;
+        in-out property <bool> has-previous: false;
+        in-out property <bool> has-next: false;
+        callback previous(); callback next();
+        VerticalBox {
+            padding: 16px; spacing: 10px;
+            Text { text: root.summary; wrap: word-wrap; }
+            Text { text: root.report-path; wrap: word-wrap; }
+            TextEdit { text: root.content; read-only: true; vertical-stretch: 1; }
+            HorizontalBox {
+                Button { text: root.words[58]; enabled: root.has-previous; clicked => { root.previous(); } }
+                Text { text: (root.page + 1); vertical-alignment: center; }
+                Button { text: root.words[59]; enabled: root.has-next; clicked => { root.next(); } }
+            }
+        }
+    }
     export component HelpWindow inherits Window {
         in property <string> heading;
         in property <string> content;
@@ -127,9 +153,14 @@ slint::slint! {
         in-out property <string> destination: root.output-path == "" ? root.words[14] : root.output-path;
         in-out property <int> phase: 0;
         in-out property <int> successes: 0;
+        in-out property <int> warning-files: 0;
+        in-out property <int> warning-count: 0;
+        in-out property <string> warning-report;
+        in-out property <string> warning-report-error;
+        callback show-warnings();
         in-out property <int> failures: 0;
         in-out property <int> cancelled: 0;
-        in-out property <string> status: root.phase == 1 ? root.words[16] : root.phase == 2 ? root.words[17] : root.phase == 5 ? root.words[23] : root.phase >= 3 ? (root.phase == 4 ? root.words[18] : root.words[19]) + ": " + root.words[20] + " " + root.successes + ", " + root.words[21] + " " + root.failures + ", " + root.words[34] + " " + root.cancelled : root.words[15];
+        in-out property <string> status: root.phase == 1 ? root.words[16] : root.phase == 2 ? root.words[17] : root.phase == 5 ? root.words[23] : root.phase >= 3 ? (root.phase == 4 ? root.words[18] : root.words[19]) + ": " + root.words[53] + " " + root.successes + ", " + root.words[54] + " " + root.warning-files + ", " + root.words[55] + " " + root.warning-count + ", " + root.words[21] + " " + root.failures + ", " + root.words[34] + " " + root.cancelled : root.words[15];
         in-out property <int> language-index;
         in-out property <int> theme-index;
         in-out property <bool> save-failed;
@@ -187,7 +218,11 @@ slint::slint! {
                 Text { text: root.target-icc == "" ? root.words[48] : root.target-icc; overflow: elide; }
             }
             ProgressIndicator { progress: root.progress; }
-            Text { text: root.status; wrap: word-wrap; }
+            HorizontalBox {
+                Text { text: root.status; wrap: word-wrap; horizontal-stretch: 1; }
+                Button { text: root.words[56]; enabled: !root.busy && (root.warning-files > 0 || root.warning-report-error != ""); clicked => { root.show-warnings(); } }
+            }
+            if root.warning-report-error != "": Text { text: root.words[57]; wrap: word-wrap; }
             TextEdit { text: root.log; read-only: true; vertical-stretch: 1; }
         }
     }
@@ -204,6 +239,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let about = AboutWindow::new()?;
     let help = HelpWindow::new()?;
     let jxl = JxlWindow::new()?;
+    let warnings_window = WarningWindow::new()?;
+    let ww = warnings_window.as_weak();
+    let aw = app.as_weak();
+    app.on_show_warnings(move || {
+        let a = aw.unwrap();
+        let w = ww.unwrap();
+        w.set_words(a.get_words());
+        w.set_summary(a.get_status());
+        w.set_report_error(a.get_warning_report_error());
+        w.set_report_path(a.get_warning_report());
+        load_warning_page(&w, 0);
+        let _ = w.show();
+    });
+    let ww = warnings_window.as_weak();
+    warnings_window.on_previous(move || {
+        let w = ww.unwrap();
+        let page = w.get_page().saturating_sub(1).max(0);
+        load_warning_page(&w, page);
+    });
+    let ww = warnings_window.as_weak();
+    warnings_window.on_next(move || {
+        let w = ww.unwrap();
+        let page = w.get_page().saturating_add(1);
+        load_warning_page(&w, page);
+    });
     let prefs_path = preferences::path()?;
     let prefs = if prefs_path.is_file() {
         preferences::load(&prefs_path)
@@ -422,7 +482,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Some(PathBuf::from(j.get_reference_path().as_str()))
         };
         let wrap = j.get_mode() == 0;
-        let tools = std::env::current_exe().unwrap().with_file_name("JXL");
+        let tools = match engine::locate_jxl_tools(std::env::current_exe()) {
+            Ok(tools) => tools,
+            Err(e) => {
+                j.set_result(e.into());
+                return;
+            }
+        };
         c.store(false, Ordering::Relaxed);
         j.set_busy(true);
         a.set_busy(true);
@@ -431,18 +497,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let aw = aw.clone();
         let c = c.clone();
         *slot.borrow_mut() = Some(std::thread::spawn(move || {
-            let result =
-                engine::jpeg_reconstruction(&tools, &input, &dir, wrap, reference.as_deref(), &c);
+            let result = engine::jpeg_reconstruction_with_warnings(
+                &tools,
+                &input,
+                &dir,
+                wrap,
+                reference.as_deref(),
+                &c,
+            );
             let text = match result {
-                Ok((path, hash, verified)) => format!(
-                    "{}\nSHA-256: {}\n{}",
+                Ok((path, hash, verified, warnings)) => format!(
+                    "{}\nSHA-256: {}\n{}{}",
                     path.display(),
                     hash,
                     if verified {
                         "SHA-256 ✓ JPEG"
                     } else {
                         "SHA-256: 原 JPEG 未提供 / No reference JPEG"
-                    }
+                    },
+                    warnings
+                        .into_iter()
+                        .map(|w| format!("\n警告：{w}"))
+                        .collect::<String>()
                 ),
                 Err(e) => e,
             };
@@ -463,10 +539,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
     let about_weak = about.as_weak();
     let jxl_weak = jxl.as_weak();
+    let warnings_weak = warnings_window.as_weak();
     let close_cancel = cancel.clone();
     let help_weak = help.as_weak();
     app.window().on_close_requested(move || {
         close_cancel.store(true, Ordering::Relaxed);
+        if let Some(window) = warnings_weak.upgrade() {
+            let _ = window.hide();
+        }
         if let Some(window) = help_weak.upgrade() {
             let _ = window.hide();
         }
@@ -516,6 +596,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         a.set_progress(0.0);
         a.set_log("".into());
         a.set_successes(0);
+        a.set_warning_files(0);
+        a.set_warning_count(0);
+        a.set_warning_report("".into());
+        a.set_warning_report_error("".into());
         a.set_failures(0);
         a.set_cancelled(0);
         a.set_phase(1);
@@ -528,6 +612,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let _ = previous.join();
         }
         let handle = std::thread::spawn(move || {
+            let warning_journal = std::sync::Mutex::new(batch_warnings::Journal::new(&folder));
             let done = AtomicUsize::new(0);
             let failed = AtomicUsize::new(0);
             let cancelled = AtomicUsize::new(0);
@@ -539,17 +624,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let Ok(pool) = result {
                 pool.install(|| {
                     files.par_iter().for_each(|input| {
+                        if !c.load(Ordering::Relaxed) {
+                            let line = format!("{}: {}", i18n::text(lang, 16), input.display());
+                            let _ = weak.upgrade_in_event_loop(move |a| {
+                                a.set_log(append_log(&a.get_log(), &line).into());
+                            });
+                        }
                         let result = engine::convert_with_options(
                             &engine, input, &folder, format, &options, &c,
                         );
                         let line = match result {
-                            Ok((p, verification)) => format!(
-                                "{}: {} → {}\n  {}",
-                                i18n::text(lang, 22),
-                                input.display(),
-                                p.display(),
-                                verification
-                            ),
+                            Ok((p, verification)) => {
+                                if warning_journal
+                                    .lock()
+                                    .unwrap()
+                                    .record(input, &verification.warnings)
+                                    .is_err()
+                                {
+                                    c.store(true, Ordering::Relaxed);
+                                }
+                                format!(
+                                    "{}: {} → {}\n  {}",
+                                    i18n::text(lang, 22),
+                                    input.display(),
+                                    p.display(),
+                                    verification
+                                )
+                            }
                             Err(e) if e == "已取消" => {
                                 cancelled.fetch_add(1, Ordering::Relaxed);
                                 done.fetch_add(1, Ordering::Relaxed);
@@ -557,7 +658,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             }
                             Err(e) => {
                                 failed.fetch_add(1, Ordering::Relaxed);
-                                format!("{}: {} — {}", i18n::text(lang, 21), input.display(), e)
+                                format!(
+                                    "{}: {} — {}",
+                                    i18n::text(lang, 21),
+                                    input.display(),
+                                    engine::localize_color_error(lang, &e)
+                                )
                             }
                         };
                         done.fetch_add(1, Ordering::Relaxed);
@@ -579,10 +685,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let count = done.load(Ordering::Relaxed);
             let failures = failed.load(Ordering::Relaxed);
             let cancellations = cancelled.load(Ordering::Relaxed);
+            let warning_summary = warning_journal.lock().unwrap().finish(
+                count - failures - cancellations,
+                failures,
+                cancellations,
+            );
             let stopped = c.load(Ordering::Relaxed);
             let _ = weak.upgrade_in_event_loop(move |a| {
                 a.set_busy(false);
-                a.set_successes((count - failures - cancellations) as i32);
+                a.set_successes(
+                    batch_warnings::clean_successes(
+                        count,
+                        failures,
+                        cancellations,
+                        warning_summary.files,
+                    )
+                    .min(i32::MAX as usize) as i32,
+                );
+                a.set_warning_files(warning_summary.files.min(i32::MAX as usize) as i32);
+                a.set_warning_count(warning_summary.messages.min(i32::MAX as usize) as i32);
+                a.set_warning_report(
+                    warning_summary
+                        .path
+                        .map(|p| p.display().to_string())
+                        .unwrap_or_default()
+                        .into(),
+                );
+                a.set_warning_report_error(warning_summary.error.unwrap_or_default().into());
                 a.set_cancelled(cancellations as i32);
                 a.set_progress(count as f32 / files.len().max(1) as f32);
                 a.set_failures(failures as i32);
@@ -590,14 +719,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if notify && !stopped {
                     rfd::MessageDialog::new()
                         .set_title("IMB-C")
-                        .set_description(format!(
-                            "{}: {} {}, {} {}",
-                            i18n::text(lang, 19),
-                            i18n::text(lang, 20),
-                            count - failures - cancellations,
-                            i18n::text(lang, 21),
-                            failures
-                        ))
+                        .set_description(format!("{}\n{}", a.get_status(), a.get_warning_report()))
                         .show();
                 }
             });
@@ -612,6 +734,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     ui_result?;
     Ok(())
+}
+
+fn load_warning_page(window: &WarningWindow, page: i32) {
+    let path = PathBuf::from(window.get_report_path().as_str());
+    match batch_warnings::read_page(&path, page.max(0) as u64) {
+        Ok(data) => {
+            let error = window.get_report_error();
+            window.set_content(
+                if error.is_empty() {
+                    data.text
+                } else {
+                    format!("{error}\n\n{}", data.text)
+                }
+                .into(),
+            );
+            window.set_page(page);
+            window.set_has_previous(data.previous);
+            window.set_has_next(data.next);
+        }
+        Err(e) => {
+            window.set_content(
+                format!("無法讀取完整警告報告：{e}\n{}", window.get_report_error()).into(),
+            );
+            window.set_has_previous(false);
+            window.set_has_next(false);
+        }
+    }
 }
 
 fn apply_preferences(app: &AppWindow, about: &AboutWindow, help: &HelpWindow) {
@@ -685,5 +834,83 @@ fn folder_dialog(path: &str) -> rfd::FileDialog {
         dialog.set_directory(path)
     } else {
         dialog
+    }
+}
+
+#[cfg(test)]
+mod warning_ui_tests {
+    #[test]
+    fn final_150_warning_counts_and_report_survive_200_line_log() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut journal = crate::batch_warnings::Journal::new(dir.path());
+        let mut log = String::new();
+        for i in 1..=155 {
+            let name = format!("artificial-{i:03}.avif");
+            log = super::append_log(&log, &format!("Processing: {name}"));
+            let warnings = if i <= 150 {
+                vec!["AVIF 缺少 ICC／CICP；色彩未驗證；請保留原檔".repeat(3)]
+            } else {
+                Vec::new()
+            };
+            journal
+                .record(std::path::Path::new(&name), &warnings)
+                .unwrap();
+            log = super::append_log(&log, &format!("Success: {name}\n  {}", warnings.join("；")));
+        }
+        let summary = journal.finish(155, 0, 0);
+        assert_eq!((summary.files, summary.messages), (150, 150));
+        assert_eq!(
+            crate::batch_warnings::clean_successes(155, 0, 0, summary.files),
+            5
+        );
+        assert!(log.lines().count() <= 200 && log.len() <= 65536);
+        assert!(!log.contains("artificial-001.avif"));
+        let report = std::fs::read_to_string(summary.path.as_ref().unwrap()).unwrap();
+        assert_eq!(report.matches("Source:").count(), 150);
+        assert_eq!(report.matches("Warning:").count(), 150);
+        assert!(report.contains("artificial-001.avif") && report.contains("artificial-150.avif"));
+        assert!(report.contains(
+            "Completed: 155; with warnings: 150; warning messages: 150; failed: 0; cancelled: 0"
+        ));
+        let mut full = String::new();
+        let mut page_index = 0;
+        loop {
+            let page = crate::batch_warnings::read_page(summary.path.as_ref().unwrap(), page_index)
+                .unwrap();
+            full.push_str(&page.text);
+            if !page.next {
+                break;
+            }
+            page_index += 1;
+        }
+        assert!(page_index > 0);
+        assert_eq!(full, report);
+    }
+    #[test]
+    fn r3_warning_history_survives_ui_log_rollover() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut report = crate::batch_warnings::Journal::new(dir.path());
+        let mut log = String::new();
+        report
+            .record(
+                std::path::Path::new("first.avif"),
+                &["important first warning".into()],
+            )
+            .unwrap();
+        log = super::append_log(&log, "important first warning");
+        for i in 0..350 {
+            log = super::append_log(&log, &format!("successful file {i}"));
+        }
+        assert!(log.lines().count() <= 200 && log.len() <= 65536);
+        assert!(!log.contains("important first warning"));
+        let summary = report.finish(351, 2, 3);
+        assert_eq!(summary.files, 1);
+        assert_eq!(summary.messages, 1);
+        let page = crate::batch_warnings::read_page(summary.path.as_ref().unwrap(), 0).unwrap();
+        assert!(page.text.contains("important first warning"));
+        assert_eq!(
+            crate::batch_warnings::clean_successes(356, 2, 3, summary.files),
+            350
+        ); // clean success count is separate from warned successes.
     }
 }

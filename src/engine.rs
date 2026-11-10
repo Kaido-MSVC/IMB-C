@@ -1,3 +1,9 @@
+#[path = "color_diagnostics.rs"]
+mod color_diagnostics;
+#[allow(dead_code)] // GUI localization; standalone verification binaries share this engine.
+pub fn localize_color_error(lang: i32, detail: &str) -> String {
+    color_diagnostics::localize(lang, detail)
+}
 use std::{
     ffi::OsString,
     fs::File,
@@ -91,7 +97,251 @@ pub fn locate_engine() -> PathBuf {
     std::env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(|p| p.join("ImageMagick").join("magick.exe")))
-        .unwrap_or_else(|| PathBuf::from("ImageMagick/magick.exe"))
+        .unwrap_or_default()
+}
+
+// One context per worker thread; scoped to a single conversion, including verification.
+thread_local! {
+    static JOB: std::cell::RefCell<Option<(PathBuf, Instant, bool)>> = const { std::cell::RefCell::new(None) };
+    static JOB_CWD: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
+    static WARNINGS: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+struct Job(Option<tempfile::TempDir>, Option<tempfile::TempDir>);
+impl Job {
+    fn new() -> Result<Self> {
+        Self::new_in(&std::env::temp_dir())
+    }
+    fn new_in(root: &Path) -> Result<Self> {
+        WARNINGS.with(|warnings| warnings.borrow_mut().clear());
+        let dir = tempfile::Builder::new()
+            .rand_bytes(16)
+            .prefix("imb-c-work-")
+            .tempdir_in(root)
+            .map_err(err)?;
+        // CreateProcessW cannot use an arbitrarily long current directory.
+        // File-handle IO may still use the requested long/UNC storage root.
+        #[cfg(windows)]
+        let cwd = if dir.path().to_string_lossy().encode_utf16().count() > 180 {
+            let base = PathBuf::from(
+                std::env::var_os("LOCALAPPDATA")
+                    .ok_or("長路徑工作缺少 LOCALAPPDATA，無法建立引擎工作目錄")?,
+            );
+            if !base.is_absolute() {
+                return Err("LOCALAPPDATA 必須為絕對路徑".into());
+            }
+            let short = tempfile::Builder::new()
+                .rand_bytes(16)
+                .prefix("imb-c-cwd-")
+                .tempdir_in(base)
+                .map_err(err)?;
+            if short.path().to_string_lossy().encode_utf16().count() > 180 {
+                return Err("無可用的短引擎工作路徑；請使用較短的 LOCALAPPDATA 路徑".into());
+            }
+            Some(short)
+        } else {
+            None
+        };
+        #[cfg(not(windows))]
+        let cwd: Option<tempfile::TempDir> = None;
+        JOB_CWD.with(|j| *j.borrow_mut() = Some(cwd.as_ref().unwrap_or(&dir).path().to_owned()));
+        JOB.with(|j| {
+            *j.borrow_mut() = Some((
+                dir.path().to_owned(),
+                Instant::now() + Duration::from_secs(600),
+                false,
+            ))
+        });
+        Ok(Self(Some(dir), cwd))
+    }
+    fn finish<T>(mut self, mut result: Result<T>) -> Result<T> {
+        let retained = JOB.with(|j| j.borrow().as_ref().is_some_and(|v| v.2));
+        for dir in [self.0.take(), self.1.take()].into_iter().flatten() {
+            if retained {
+                let path = dir.keep();
+                result = Err(format!(
+                    "{}；工作目錄保留於 {}",
+                    result.err().unwrap_or_default(),
+                    path.display()
+                ));
+            } else {
+                let path = dir.path().to_owned();
+                result = cleanup_result(result, dir.close().map_err(|e| format!("工作暫存清理失敗 {}：{e}；可能累積磁碟用量，請在所有工作停止後檢查此目錄", path.display())));
+            }
+        }
+        result
+    }
+    fn finish_with_warnings<T>(self, result: Result<T>) -> Result<(T, Vec<String>)> {
+        let result = self.finish(result);
+        let warnings = WARNINGS.with(|w| std::mem::take(&mut *w.borrow_mut()));
+        match result {
+            Ok(value) => Ok((value, warnings)),
+            Err(e) => Err(if warnings.is_empty() {
+                e
+            } else {
+                format!("{e}；{}", warnings.join("；"))
+            }),
+        }
+    }
+}
+impl Drop for Job {
+    fn drop(&mut self) {
+        let retained = JOB.with(|j| j.borrow_mut().take().is_some_and(|v| v.2));
+        JOB_CWD.with(|j| *j.borrow_mut() = None);
+        if retained {
+            for dir in [self.0.take(), self.1.take()].into_iter().flatten() {
+                let _ = dir.keep();
+            }
+        }
+    }
+}
+fn cleanup_result<T>(result: Result<T>, cleanup: Result<()>) -> Result<T> {
+    match (result, cleanup) {
+        (Ok(value), Err(warning)) => {
+            WARNINGS.with(|w| w.borrow_mut().push(warning));
+            Ok(value)
+        }
+        (Err(e), Err(warning)) => Err(format!("{e}；{warning}")),
+        (result, Ok(())) => result,
+    }
+}
+fn job_dir() -> PathBuf {
+    JOB.with(|j| {
+        j.borrow()
+            .as_ref()
+            .map(|v| v.0.clone())
+            .unwrap_or_else(std::env::temp_dir)
+    })
+}
+fn job_cwd() -> PathBuf {
+    JOB_CWD.with(|j| j.borrow().clone().unwrap_or_else(job_dir))
+}
+fn job_file() -> Result<File> {
+    tempfile::tempfile_in(job_dir()).map_err(err)
+}
+fn check_job(cancel: &AtomicBool) -> Result<()> {
+    if cancel.load(Ordering::Relaxed) {
+        return Err("已取消".into());
+    }
+    JOB.with(|j| {
+        if j.borrow().as_ref().is_some_and(|v| Instant::now() >= v.1) {
+            Err("單檔工作超過 600 秒總期限，未保存輸出".into())
+        } else {
+            Ok(())
+        }
+    })
+}
+fn validate_engine(engine: &Path) -> Result<()> {
+    if !engine.is_absolute() || !engine.is_file() {
+        return Err("無法定位絕對路徑的私有 ImageMagick 引擎，未啟動子程序".into());
+    }
+    let home = engine.parent().ok_or("引擎路徑無父目錄")?;
+    let policy =
+        std::fs::read(home.join("policy.xml")).map_err(|e| format!("私有 policy 缺漏：{e}"))?;
+    if policy != include_bytes!("../assets/policy-v13.xml") {
+        return Err("私有 policy 與 v1.3 預期內容不符，請校驗 runtime".into());
+    }
+    for module in ["miff", "meta", "rgb"] {
+        if !home
+            .join(format!("modules/coders/IM_MOD_RL_{module}_.dll"))
+            .is_file()
+        {
+            return Err(format!("私有 runtime 缺少 {module} coder，請校驗 runtime"));
+        }
+    }
+    Ok(())
+}
+// Official CLI policy introspection. Windows registry paths cannot be disabled
+// by MAGICK_CONFIGURE_PATH; reject any additional active policy before image IO.
+fn validate_policy_listing(text: &str, private: &Path) -> Result<()> {
+    let private = private.canonicalize().map_err(err)?;
+    let mut in_private = false;
+    let mut saw_private = false;
+    let mut saw_private_rule = false;
+    for line in text.lines().map(str::trim).filter(|s| !s.is_empty()) {
+        if let Some(path) = line.strip_prefix("Path: ") {
+            in_private = path != "[built-in]"
+                && Path::new(path)
+                    .canonicalize()
+                    .map_err(|e| format!("無法核對生效 policy 路徑 {path}：{e}"))?
+                    == private;
+            saw_private |= in_private;
+        } else if let Some(domain) = line.strip_prefix("Policy: ") {
+            if in_private {
+                saw_private_rule = true;
+            } else if domain != "Undefined" {
+                return Err(format!(
+                    "偵測到私有 runtime 以外的生效 policy（{domain}），可能放寬或干擾限制，未讀取圖片；請檢查系統 ImageMagick policy"
+                ));
+            }
+        }
+    }
+    if !saw_private || !saw_private_rule {
+        return Err("無法確認私有 policy 已載入，未讀取圖片".into());
+    }
+    Ok(())
+}
+fn verify_active_policy(engine: &Path, cancel: &AtomicBool) -> Result<()> {
+    let source = job_file()?;
+    let mut out = job_file()?;
+    run(engine, &["-list", "policy"], &source, &out, cancel)?;
+    if out.metadata().map_err(err)?.len() > 1024 * 1024 {
+        return Err("policy 清單過大，無法安全核對".into());
+    }
+    out.seek(SeekFrom::Start(0)).map_err(err)?;
+    let mut listing = String::new();
+    out.read_to_string(&mut listing).map_err(err)?;
+    validate_policy_listing(
+        &listing,
+        &engine.parent().ok_or("引擎父目錄缺漏")?.join("policy.xml"),
+    )?;
+    // Exercise a normally available raw writer that our coder policy forbids.
+    // This also detects common broad stealth grants omitted from -list policy.
+    let mut source = job_file()?;
+    use std::io::Write;
+    source
+        .write_all(include_bytes!("../tests/fixtures/seed.png"))
+        .map_err(err)?;
+    source.seek(SeekFrom::Start(0)).map_err(err)?;
+    let output = job_file()?;
+    match run(engine, &["png:-", "rgb:-"], &source, &output, cancel) {
+        Err(e)
+            if (e.contains("security policy") || e.contains("not authorized"))
+                && output.metadata().map_err(err)?.len() == 0 =>
+        {
+            Ok(())
+        }
+        Err(e) if e == "已取消" => Err(e),
+        result => Err(format!(
+            "私有 policy 禁用 RGB coder 檢查未通過，未讀取圖片：{result:?}"
+        )),
+    }
+}
+
+pub fn locate_jxl_tools(executable: std::io::Result<PathBuf>) -> Result<PathBuf> {
+    let executable = executable.map_err(|e| format!("無法定位 JPEG ↔ JXL 工具：{e}"))?;
+    if !executable.is_absolute() {
+        return Err("執行檔路徑必須為絕對路徑".into());
+    }
+    let tools = executable.with_file_name("JXL");
+    if !tools.join("cjxl.exe").is_file() || !tools.join("djxl.exe").is_file() {
+        return Err("缺少私有 JPEG ↔ JXL 工具 cjxl.exe / djxl.exe".into());
+    }
+    Ok(tools)
+}
+// ImageMagick 7.1.2-34: primaries/transfer/matrix/full_range (coders/heic.c).
+fn validate_avif_cicp(text: &str) -> Result<()> {
+    let fields = text
+        .trim()
+        .split('/')
+        .map(str::parse::<u32>)
+        .collect::<std::result::Result<Vec<_>, _>>();
+    match fields.as_deref() {
+        Ok([1, 1 | 13, 0 | 1 | 6, 0 | 1]) => Ok(()),
+        _ => Err(format!(
+            "此 AVIF 沒有 ICC，CICP 無法確認為支援的 SDR（{}）；HDR／廣色域或未知資訊未保存輸出，請使用已嵌入正確 ICC 的來源",
+            text.trim()
+        )),
+    }
 }
 
 fn private_engine_path(home: &Path) -> Result<OsString> {
@@ -126,14 +376,12 @@ fn run_with_timeout(
     cancel: &AtomicBool,
     timeout: Duration,
 ) -> Result<()> {
-    if cancel.load(Ordering::Relaxed) {
-        return Err("已取消".into());
-    }
+    check_job(cancel)?;
     // Only this freshly created random directory is owned by this invocation.
     // Never scan/delete global magick-* files or a directory from a previous run.
     let scratch = tempfile::Builder::new()
         .prefix("imb-c-job-")
-        .tempdir()
+        .tempdir_in(job_cwd())
         .map_err(err)?;
     let scratch_path = scratch.path().to_path_buf();
     let mut stopped = true;
@@ -150,6 +398,11 @@ fn run_with_timeout(
     if !stopped {
         // A failed wait cannot establish that the child has released its files.
         // Preserve this directory and report it instead of racing a live child.
+        JOB.with(|j| {
+            if let Some(job) = j.borrow_mut().as_mut() {
+                job.2 = true;
+            }
+        });
         let retained = scratch.keep();
         return Err(format!(
             "{}；無法確認子程序停止，暫存保留於 {}",
@@ -157,14 +410,12 @@ fn run_with_timeout(
             retained.display()
         ));
     }
-    match scratch.close() {
-        Ok(()) => result,
-        Err(e) => Err(format!(
-            "{}；暫存清理失敗：{} ({e})",
-            result.err().unwrap_or_else(|| "轉換已停止".into()),
-            scratch_path.display()
-        )),
-    }
+    cleanup_result(
+        result,
+        scratch
+            .close()
+            .map_err(|e| format!("引擎暫存清理失敗 {}：{e}", scratch_path.display())),
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -178,7 +429,13 @@ fn run_child(
     scratch: &Path,
     stopped: &mut bool,
 ) -> Result<()> {
-    let stderr = tempfile::tempfile().map_err(err)?;
+    let stderr = job_file()?;
+    if engine
+        .file_name()
+        .is_some_and(|n| n.eq_ignore_ascii_case("magick.exe"))
+    {
+        validate_engine(engine)?;
+    }
     let mut command = Command::new(engine);
     command
         .args(args)
@@ -193,10 +450,18 @@ fn run_child(
     if let Some(home) = engine.parent().filter(|p| p.is_absolute()) {
         // Child-only configuration: never change the user's PATH or installed ImageMagick.
         command
-            .current_dir(home)
+            .current_dir(
+                JOB_CWD
+                    .with(|j| j.borrow().clone())
+                    .unwrap_or_else(|| home.to_owned())
+                    .canonicalize()
+                    .map_err(err)?,
+            )
             .env("PATH", private_engine_path(home)?)
             .env("MAGICK_HOME", home)
             .env("MAGICK_CONFIGURE_PATH", home)
+            .env("XDG_CONFIG_HOME", scratch)
+            .env("HOME", scratch)
             .env("MAGICK_CODER_MODULE_PATH", home.join("modules/coders"))
             .env("MAGICK_FILTER_MODULE_PATH", home.join("modules/filters"))
             .env_remove("MAGICK_CONFIGURE_BUILD_PATH");
@@ -212,14 +477,14 @@ fn run_child(
     *stopped = false;
     let started = Instant::now();
     loop {
-        if cancel.load(Ordering::Relaxed) || started.elapsed() > timeout {
+        if check_job(cancel).is_err() || started.elapsed() > timeout {
             let _ = child.kill();
             child
                 .wait()
                 .map_err(|e| format!("等待子程序停止失敗：{e}"))?;
             *stopped = true;
-            return Err(if cancel.load(Ordering::Relaxed) {
-                "已取消".into()
+            return Err(if let Err(reason) = check_job(cancel) {
+                reason
             } else {
                 format!("超過單次執行 {} 秒限制", timeout.as_secs())
             });
@@ -256,6 +521,112 @@ fn run_child(
             }
         }
     }
+}
+
+// IM 7.1.2-34 rejects every zero-length image resource. CSP writes valid
+// empty alpha-name resources (1006 / 1045). Normalize only those empty records
+// in a private stream; all other resource, layer and composite bytes are copied.
+fn psd_compatible_source(source: &mut File, cancel: &AtomicBool) -> Result<Option<File>> {
+    use std::io::Write;
+    fn long(file: &mut File) -> Result<u32> {
+        let mut bytes = [0; 4];
+        file.read_exact(&mut bytes)
+            .map_err(|e| format!("PSD 資源區塊截斷：{e}"))?;
+        Ok(u32::from_be_bytes(bytes))
+    }
+    let length = source.metadata().map_err(err)?.len();
+    source.seek(SeekFrom::Start(26)).map_err(err)?;
+    let color_length = u64::from(long(source)?);
+    let resource_length_pos = 30 + color_length;
+    if resource_length_pos + 4 > length {
+        return Err("PSD 色彩資料區塊超出檔案範圍".into());
+    }
+    source
+        .seek(SeekFrom::Start(resource_length_pos))
+        .map_err(err)?;
+    let resource_length = u64::from(long(source)?);
+    let start = resource_length_pos + 4;
+    let end = start + resource_length;
+    if end > length {
+        return Err("PSD 資源區塊超出檔案範圍".into());
+    }
+    let mut at = start;
+    let mut removed = Vec::new();
+    while at < end {
+        check_job(cancel)?;
+        if end - at < 12 {
+            break; // Preserve unparsed trailing bytes for the engine.
+        }
+        source.seek(SeekFrom::Start(at)).map_err(err)?;
+        let mut header = [0; 7];
+        source.read_exact(&mut header).map_err(err)?;
+        if &header[..4] != b"8BIM" {
+            break; // The engine stops resource parsing here; do not reject its input.
+        }
+        let id = u16::from_be_bytes(header[4..6].try_into().unwrap());
+        let name_size = (u64::from(header[6]) + 2) & !1;
+        let size_pos = at + 6 + name_size;
+        if size_pos + 4 > end {
+            break; // No complete length field; never read outside the resource area.
+        }
+        source.seek(SeekFrom::Start(size_pos)).map_err(err)?;
+        let size = u64::from(long(source)?);
+        let data_end = size_pos
+            .checked_add(4)
+            .and_then(|v| v.checked_add(size))
+            .ok_or("PSD 資源長度溢位")?;
+        if data_end > end {
+            return Err("PSD 資源資料超出區塊範圍".into());
+        }
+        // A final odd payload may omit its padding; preserve it unchanged.
+        let next = data_end
+            .checked_add(size & 1)
+            .ok_or("PSD 資源長度溢位")?
+            .min(end);
+        if size == 0 && matches!(id, 1006 | 1045) {
+            if removed.len() >= 65536 {
+                return Err("PSD 空白名稱資源數量超限".into());
+            }
+            removed.push((at, next));
+        }
+        at = next;
+    }
+    source.seek(SeekFrom::Start(0)).map_err(err)?;
+    if removed.is_empty() {
+        return Ok(None);
+    }
+    let removed_size: u64 = removed.iter().map(|(a, b)| b - a).sum();
+    let mut out = job_file()?;
+    copy_bytes(source, &mut out, resource_length_pos, cancel)?;
+    out.write_all(&((resource_length - removed_size) as u32).to_be_bytes())
+        .map_err(err)?;
+    source.seek(SeekFrom::Start(start)).map_err(err)?;
+    let mut cursor = start;
+    for (a, b) in removed {
+        copy_bytes(source, &mut out, a - cursor, cancel)?;
+        source.seek(SeekFrom::Start(b)).map_err(err)?;
+        cursor = b;
+    }
+    copy_bytes(source, &mut out, length - cursor, cancel)?;
+    out.seek(SeekFrom::Start(0)).map_err(err)?;
+    Ok(Some(out))
+}
+fn copy_bytes(
+    source: &mut File,
+    target: &mut File,
+    mut count: u64,
+    cancel: &AtomicBool,
+) -> Result<()> {
+    use std::io::Write;
+    let mut buffer = [0; 65536];
+    while count > 0 {
+        check_job(cancel)?;
+        let n = count.min(buffer.len() as u64) as usize;
+        source.read_exact(&mut buffer[..n]).map_err(err)?;
+        target.write_all(&buffer[..n]).map_err(err)?;
+        count -= n as u64;
+    }
+    Ok(())
 }
 
 // PNG's animation control chunk precedes image data. The ordinary PNG coder
@@ -324,6 +695,7 @@ fn publish(
 ) -> Result<PathBuf> {
     temp.as_file().sync_all().map_err(err)?;
     for index in 0..10000 {
+        check_job(&AtomicBool::new(false))?;
         let mut name = OsString::from(stem);
         if index > 0 {
             name.push(format!(" ({index})"));
@@ -347,13 +719,15 @@ fn image_stage_error(stage: &str, detail: String) -> String {
         return detail;
     }
     let lower = detail.to_ascii_lowercase();
-    let hint = if lower.contains("cache resources exhausted")
+    let hint = if lower.contains("invalid psd resource block offset") {
+        "；ImageMagick 無法讀取 Photoshop 資源區塊，請用原繪圖軟體另存新檔後再試"
+    } else if lower.contains("cache resources exhausted")
         || lower.contains("disk allocation failed")
         || lower.contains("no space left")
     {
         "；請檢查暫存磁碟可用空間；每個引擎行程的磁碟快取上限為 8 GiB"
     } else if lower.contains("time limit") || detail.contains("秒限制") {
-        "；目前維持每次引擎執行 600 秒上限，請回報圖片尺寸及輸出格式"
+        "；單檔總期限及每次引擎執行上限均為 600 秒，請回報圖片尺寸及輸出格式"
     } else {
         ""
     };
@@ -386,6 +760,9 @@ pub struct Verification {
     pub output_depth: u32,
     pub icc: bool,
     pub transformed: bool,
+    pub color_verified: bool,
+    pub color_missing: bool,
+    pub warnings: Vec<String>,
 }
 impl std::fmt::Display for Verification {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -399,8 +776,10 @@ impl std::fmt::Display for Verification {
             },
             self.input_depth,
             self.output_depth,
-            if self.icc {
+            if self.icc && self.color_verified {
                 "preserved ✓"
+            } else if self.icc {
+                "present; not verified"
             } else {
                 "untagged"
             },
@@ -411,7 +790,14 @@ impl std::fmt::Display for Verification {
             } else {
                 ""
             }
-        )
+        )?;
+        if self.color_missing {
+            write!(f, "; color information not verified")?;
+        }
+        for warning in &self.warnings {
+            write!(f, "\n  警告：{warning}")?;
+        }
+        Ok(())
     }
 }
 
@@ -431,6 +817,60 @@ fn invoke(
     )
 }
 
+// Prove absence only from a complete PNG chunk walk, never from ping's ICC list.
+// Text/unknown metadata may carry legacy raw profiles, so those require full read.
+fn png_profile_hint(source: &mut File) -> Result<(bool, bool)> {
+    source.seek(SeekFrom::Start(0)).map_err(err)?;
+    let mut signature = [0; 8];
+    source.read_exact(&mut signature).map_err(err)?;
+    if signature != *b"\x89PNG\r\n\x1a\n" {
+        return Err("PNG 檔頭無效".into());
+    }
+    let size = source.metadata().map_err(err)?.len();
+    let mut at = 8u64;
+    let mut present = false;
+    let mut ambiguous = false;
+    loop {
+        if at.checked_add(12).is_none_or(|end| end > size) {
+            return Err("PNG 區塊標頭截斷".into());
+        }
+        source.seek(SeekFrom::Start(at)).map_err(err)?;
+        let mut header = [0; 8];
+        source.read_exact(&mut header).map_err(err)?;
+        let n = u64::from(u32::from_be_bytes(header[..4].try_into().unwrap()));
+        let end = at
+            .checked_add(12)
+            .and_then(|v| v.checked_add(n))
+            .ok_or("PNG 區塊長度溢位")?;
+        if end > size {
+            return Err("PNG 區塊超出檔案範圍".into());
+        }
+        match &header[4..] {
+            b"iCCP" => present = true,
+            b"IHDR" | b"PLTE" | b"IDAT" | b"tRNS" | b"gAMA" | b"cHRM" | b"sRGB" | b"pHYs"
+            | b"bKGD" => {}
+            b"IEND" => {
+                source.seek(SeekFrom::Start(0)).map_err(err)?;
+                return Ok((present, ambiguous));
+            }
+            _ => ambiguous = true,
+        }
+        at = end;
+    }
+}
+fn icc_model(profile: &mut File) -> Result<[u8; 4]> {
+    profile.seek(SeekFrom::Start(0)).map_err(err)?;
+    let mut header = [0; 128];
+    profile
+        .read_exact(&mut header)
+        .map_err(|e| format!("ICC 標頭截斷：{e}"))?;
+    if &header[36..40] != b"acsp" {
+        return Err("ICC 標頭簽章無效，未保存輸出".into());
+    }
+    profile.seek(SeekFrom::Start(0)).map_err(err)?;
+    Ok(header[16..20].try_into().unwrap())
+}
+
 fn metadata(
     engine: &Path,
     coder: &str,
@@ -438,35 +878,40 @@ fn metadata(
     cancel: &AtomicBool,
 ) -> Result<(u32, bool, u64, u64)> {
     source.seek(SeekFrom::Start(0)).map_err(err)?;
-    let mut out = tempfile::tempfile().map_err(err)?;
-    run(
-        engine,
-        &[
-            "identify",
-            "-define",
-            "png:preserve-iCCP=true",
-            "-format",
-            "%z\n%[profiles]\n%w\n%h",
-            coder,
-        ],
-        source,
-        &out,
-        cancel,
-    )?;
+    let mut out = job_file()?;
+    let hint = if coder == "png:-" {
+        Some(png_profile_hint(source)?)
+    } else {
+        None
+    };
+    let mut args = vec![
+        "identify",
+        "-define",
+        "png:preserve-iCCP=true",
+        "-format",
+        "%z\n%[profiles]\n%w\n%h",
+    ];
+    // No coder/extension whitelist for ICC. Full profile read is authoritative.
+    // The only fast path is structural proof that PNG cannot contain a profile.
+    if hint == Some((false, false)) {
+        args.push("-ping");
+    }
+    args.push(coder);
+    run(engine, &args, source, &out, cancel)
+        .map_err(|e| image_stage_error("讀取位深／ICC (identify)", e))?;
     out.seek(SeekFrom::Start(0)).map_err(err)?;
     let mut text = String::new();
     out.take(4096).read_to_string(&mut text).map_err(err)?;
     let mut lines = text.lines();
     let depth = lines.next().ok_or("缺少位深資訊")?.parse().map_err(err)?;
     let profiles = lines.next().unwrap_or("");
+    let has_icc = profiles.split([',', ' ']).any(|s| s == "icc" || s == "icm");
+    if hint.is_some_and(|v| v.0) && !has_icc {
+        return Err("PNG 有 iCCP，但引擎未能完整讀取 ICC；未保存輸出".into());
+    }
     let width = lines.next().ok_or("缺少寬度")?.parse().map_err(err)?;
     let height = lines.next().ok_or("缺少高度")?.parse().map_err(err)?;
-    Ok((
-        depth,
-        profiles.split([',', ' ']).any(|s| s == "icc" || s == "icm"),
-        width,
-        height,
-    ))
+    Ok((depth, has_icc, width, height))
 }
 
 fn extracted(
@@ -476,14 +921,10 @@ fn extracted(
     kind: &str,
     depth: u32,
     cancel: &AtomicBool,
-) -> Result<NamedTempFile> {
+) -> Result<File> {
     source.seek(SeekFrom::Start(0)).map_err(err)?;
-    let mut output = tempfile::Builder::new()
-        .prefix("imb-c-verify-")
-        .tempfile()
-        .map_err(err)?;
-    let sink = tempfile::tempfile().map_err(err)?;
-    let target = format!("{kind}:{}", output.path().display());
+    let mut output = job_file()?;
+    let target = format!("{kind}:-");
     let bits = depth.to_string();
     let mut args = vec!["-define", "png:preserve-iCCP=true", coder];
     if kind == "rgba" {
@@ -493,11 +934,11 @@ fn extracted(
         }
     }
     args.push(&target);
-    run(engine, &args, source, &sink, cancel)?;
-    if output.as_file().metadata().map_err(err)?.len() == 0 {
+    run(engine, &args, source, &output, cancel)?;
+    if output.metadata().map_err(err)?.len() == 0 {
         return Err("驗證資料為空，無法確認畫質".into());
     }
-    output.as_file_mut().seek(SeekFrom::Start(0)).map_err(err)?;
+    output.seek(SeekFrom::Start(0)).map_err(err)?;
     Ok(output)
 }
 
@@ -525,9 +966,7 @@ fn sample_error(
     let mut sum = 0f64;
     let mut exact = true;
     loop {
-        if cancel.load(Ordering::Relaxed) {
-            return Err("已取消".into());
-        }
+        check_job(cancel)?;
         // Read exact matching blocks; ordinary files can still return short reads.
         let n = a.read(&mut aa).map_err(err)?;
         if n == 0 {
@@ -588,9 +1027,31 @@ pub fn convert_with_options(
     options: &Options,
     cancel: &AtomicBool,
 ) -> Result<(PathBuf, Verification)> {
+    check_job(cancel)?;
+    let job = Job::new()?;
+    let ((path, mut verification), warnings) = job.finish_with_warnings(
+        convert_with_options_inner(engine, input, dir, format, options, cancel),
+    )?;
+    verification.warnings.extend(
+        warnings
+            .into_iter()
+            .map(|w| format!("輸出已保存 {}；{w}", path.display())),
+    );
+    Ok((path, verification))
+}
+fn convert_with_options_inner(
+    engine: &Path,
+    input: &Path,
+    dir: &Path,
+    format: Format,
+    options: &Options,
+    cancel: &AtomicBool,
+) -> Result<(PathBuf, Verification)> {
     if cancel.load(Ordering::Relaxed) {
         return Err("已取消".into());
     }
+    validate_engine(engine)?;
+    verify_active_policy(engine, cancel)?;
     let input_format = Format::input(input)?;
     let mut source = File::open(input).map_err(err)?;
     if !source.metadata().map_err(err)?.is_file() {
@@ -598,16 +1059,21 @@ pub fn convert_with_options(
     }
     if matches!(input_format, Format::Psd) {
         let mut header = [0; 6];
-        source.read_exact(&mut header).map_err(err)?;
+        source
+            .read_exact(&mut header)
+            .map_err(|e| format!("PSD 檔頭截斷：{e}"))?;
         if &header != b"8BPS\0\x01" {
             return Err("僅支援 PSD v1，不支援 PSB 或無效 PSD".into());
+        }
+        if let Some(compatible) = psd_compatible_source(&mut source, cancel)? {
+            source = compatible;
         }
     }
     if matches!(input_format, Format::Png) {
         reject_apng(&mut source)?;
     }
     source.seek(SeekFrom::Start(0)).map_err(err)?;
-    let mut info = tempfile::tempfile().map_err(err)?;
+    let mut info = job_file()?;
     run(
         engine,
         &[
@@ -655,17 +1121,37 @@ pub fn convert_with_options(
     }
     let (input_depth, source_icc, _, _) =
         metadata(engine, input_format.input_coder(), &mut source, cancel)?;
+    let mut source_profile_hash = None;
+    let mut effective_icc_model = None;
+    if source_icc {
+        let mut profile = extracted(
+            engine,
+            input_format.input_coder(),
+            &mut source,
+            "icc",
+            16,
+            cancel,
+        )?;
+        effective_icc_model = Some(icc_model(&mut profile)?);
+        source_profile_hash = Some(sha256(&mut profile)?);
+    }
+    // JXL exposes a decoder ICC representation, not proof that ICC bytes were
+    // embedded. The bundled coder discards this provenance flag. Keep its color
+    // definition and all verification requirements even when origin is unknown.
+    let source_icc_model = effective_icc_model;
     if matches!(input_format, Format::Png) {
         let (cicp, iccp) = png_color_chunks(&mut source)?;
         if cicp.is_some() && (!iccp || !source_icc) {
             return Err("此 PNG 僅有 cICP、沒有原始 iCCP；目前無法驗證轉檔後完整保留色彩資訊，未保存輸出。請使用已嵌入正確 ICC 的來源".into());
         }
     }
+    let mut color_missing = false;
+    let mut avif_output_cicp = String::from("heic:cicp=1/13/6/1");
     // CICP-only HDR/wide-gamut AVIF has no ICC for the proven preservation path.
     // Refuse rather than silently relabeling PQ/HLG samples as sRGB.
     if matches!(input_format, Format::Avif) && !source_icc {
         source.seek(SeekFrom::Start(0)).map_err(err)?;
-        let mut out = tempfile::tempfile().map_err(err)?;
+        let mut out = job_file()?;
         run(
             engine,
             &[
@@ -682,14 +1168,12 @@ pub fn convert_with_options(
         out.seek(SeekFrom::Start(0)).map_err(err)?;
         let mut text = String::new();
         out.take(256).read_to_string(&mut text).map_err(err)?;
-        let fields: Vec<u32> = text
-            .trim()
-            .split('/')
-            .filter_map(|x| x.parse().ok())
-            .collect();
-        if fields.len() >= 2 && ((!matches!(fields[0], 0 | 1 | 2)) || matches!(fields[1], 16 | 18))
-        {
-            return Err("此 AVIF 僅有 HDR／廣色域 CICP、沒有 ICC；尚未驗證此路徑的完整色彩保留，未保存輸出。請使用已嵌入正確 ICC 的來源".into());
+        if text.trim().is_empty() {
+            color_missing = true;
+        } else {
+            validate_avif_cicp(&text)?;
+            let transfer = text.trim().split('/').nth(1).ok_or("CICP transfer 缺漏")?;
+            avif_output_cicp = format!("heic:cicp=1/{transfer}/6/1");
         }
     }
     if options.webp_lossless && matches!(format, Format::Webp) && input_depth > 8 {
@@ -699,7 +1183,7 @@ pub fn convert_with_options(
         return Err("超過 16-bit／浮點來源請使用 JXL 或 TIFF，避免靜默截斷精度".into());
     }
     let destination = dir.canonicalize().map_err(err)?;
-    let mut intermediate = tempfile::tempfile().map_err(err)?;
+    let mut intermediate = job_file()?;
     source.seek(SeekFrom::Start(0)).map_err(err)?;
     let mut args: Vec<String> = [
         "-limit",
@@ -734,9 +1218,10 @@ pub fn convert_with_options(
             return Err("來源沒有 ICC；無法可靠判斷原始色域，請先為來源嵌入正確 ICC".into());
         }
         let mut profile = tempfile::Builder::new()
+            .rand_bytes(16)
             .prefix("imb-c-profile-")
             .suffix(".icc")
-            .tempfile()
+            .tempfile_in(job_cwd())
             .map_err(err)?;
         let f = File::open(path).map_err(err)?;
         if f.metadata().map_err(err)?.len() > 16 * 1024 * 1024 {
@@ -754,12 +1239,25 @@ pub fn convert_with_options(
         }
         use std::io::Write;
         profile.as_file_mut().write_all(&data).map_err(err)?;
+        effective_icc_model = Some(data[16..20].try_into().unwrap());
         target_profile_hash = Some(sha256(profile.as_file_mut())?);
         args.extend([
             "-profile".into(),
-            profile.path().to_string_lossy().into_owned(),
+            profile
+                .path()
+                .file_name()
+                .ok_or("ICC 暫存檔名無效")?
+                .to_string_lossy()
+                .into_owned(),
         ]);
         profile_snapshot = Some(profile);
+    }
+    if matches!(format, Format::Webp) && effective_icc_model.is_some_and(|model| model != *b"RGB ")
+    {
+        return Err(color_diagnostics::profile(
+            &effective_icc_model.unwrap(),
+            matches!(input_format, Format::Jxl) && options.target_icc.is_none(),
+        ));
     }
     if matches!(format, Format::Jpeg) {
         args.extend(
@@ -784,11 +1282,14 @@ pub fn convert_with_options(
     );
     invoke(engine, &args, &source, &intermediate, cancel)
         .map_err(|e| image_stage_error("圖片轉換 (convert)／高精度中繼", e))?;
-    let (_, _, expected_width, expected_height) =
+    let (_, intermediate_icc, expected_width, expected_height) =
         metadata(engine, "miff:-", &mut intermediate, cancel)?;
-    if let Some(expected) = target_profile_hash {
+    if intermediate_icc != source_icc {
+        return Err("中繼 ICC 遺失或意外新增，未保存輸出".into());
+    }
+    if let Some(expected) = &target_profile_hash {
         let mut actual = extracted(engine, "miff:-", &mut intermediate, "icc", 16, cancel)?;
-        if sha256(actual.as_file_mut())? != expected {
+        if &sha256(&mut actual)? != expected {
             return Err("目標 ICC 未正確套用，未保存輸出".into());
         }
     }
@@ -804,7 +1305,10 @@ pub fn convert_with_options(
         "32"
     } else if input_depth > 8
         || (options.target_icc.is_some()
-            && matches!(format, Format::Png | Format::Tiff | Format::Jxl | Format::Psd))
+            && matches!(
+                format,
+                Format::Png | Format::Tiff | Format::Jxl | Format::Psd
+            ))
         || (matches!(input_format, Format::Psd)
             && matches!(format, Format::Png | Format::Tiff | Format::Jxl))
     {
@@ -838,6 +1342,12 @@ pub fn convert_with_options(
         }
     }
     if matches!(format, Format::Avif) {
+        // The bundled encoder otherwise omits nclx for ordinary unprofiled SDR.
+        // Record its existing sRGB/BT.601 full-range encoding explicitly, so our
+        // own output also satisfies the strict CICP-only input validation.
+        if !source_icc && !color_missing {
+            args.extend(["-define", &avif_output_cicp]);
+        }
         args.extend([
             "-quality",
             &q,
@@ -849,6 +1359,11 @@ pub fn convert_with_options(
     }
     if matches!(format, Format::Png) {
         args.extend(["-define", "png:preserve-iCCP=true"]);
+        // An RGB ICC must not be written into grayscale PNG storage. Keep all
+        // samples (including alpha) and use an RGB-compatible PNG color type.
+        if effective_icc_model == Some(*b"RGB ") {
+            args.extend(["-define", "png:color-type=6"]);
+        }
         if depth == "16" {
             args.extend(["-define", "png:bit-depth=16"]);
         }
@@ -886,7 +1401,8 @@ pub fn convert_with_options(
     } else {
         input_format.input_coder()
     };
-    let (_, expected_icc, _, _) = metadata(engine, reference_coder, &mut reference, cancel)?;
+    let expected_icc = source_icc; // Original authoritative profile, not a possibly altered intermediate.
+    let expected_profile_hash = target_profile_hash.or(source_profile_hash);
     // libjxl's decoder may expose an ICC representation of its internal color
     // encoding even when the source and encoded JXL contain no ICC profile.
     let jxl_decoder_profile = matches!(format, Format::Jxl) && !expected_icc && output_icc;
@@ -898,7 +1414,6 @@ pub fn convert_with_options(
         });
     }
     if expected_icc {
-        let mut a = extracted(engine, reference_coder, &mut reference, "icc", 16, cancel)?;
         let mut b = extracted(
             engine,
             format.input_coder(),
@@ -907,7 +1422,7 @@ pub fn convert_with_options(
             16,
             cancel,
         )?;
-        if sha256(a.as_file_mut())? != sha256(b.as_file_mut())? {
+        if Some(sha256(&mut b)?) != expected_profile_hash {
             return Err("ICC 描述檔不一致，未保存輸出".into());
         }
     }
@@ -929,8 +1444,8 @@ pub fn convert_with_options(
         cancel,
     )?;
     let (exact, max_error, rmse) = sample_error(
-        a.as_file_mut(),
-        b.as_file_mut(),
+        &mut a,
+        &mut b,
         check_depth,
         expected_width * expected_height * 4,
         cancel,
@@ -938,6 +1453,12 @@ pub fn convert_with_options(
     let lossless = matches!(format, Format::Png | Format::Tiff | Format::Jxl)
         || (matches!(format, Format::Webp) && options.webp_lossless);
     if lossless && !exact {
+        if matches!(format, Format::Webp)
+            && options.target_icc.is_some()
+            && source_icc_model.is_some_and(|model| model != *b"RGB ")
+        {
+            return Err(color_diagnostics::precision(max_error));
+        }
         return Err(format!("無損像素驗證失敗 max={max_error:.8}，未保存輸出"));
     }
     if lossless && input_depth > 8 && output_depth < input_depth {
@@ -946,6 +1467,7 @@ pub fn convert_with_options(
     if cancel.load(Ordering::Relaxed) {
         return Err("已取消".into());
     }
+    check_job(cancel)?;
     let result = publish(
         temp,
         &destination,
@@ -962,6 +1484,13 @@ pub fn convert_with_options(
             output_depth,
             icc: expected_icc,
             transformed,
+            color_verified: expected_icc,
+            color_missing,
+            warnings: if color_missing {
+                vec!["來源 AVIF 缺少 ICC／CICP；沿用解碼器行為完成轉檔，僅驗證樣本數值，未驗證色域／傳輸特性；請保留原檔".into()]
+            } else {
+                Vec::new()
+            },
         },
     ))
 }
@@ -972,6 +1501,7 @@ pub fn sha256(file: &mut File) -> Result<String> {
     let mut hash = Sha256::new();
     let mut buffer = [0u8; 65536];
     loop {
+        check_job(&AtomicBool::new(false))?;
         let count = file.read(&mut buffer).map_err(err)?;
         if count == 0 {
             break;
@@ -984,7 +1514,42 @@ pub fn sha256(file: &mut File) -> Result<String> {
 
 // JPEG reconstruction is deliberately separate from ordinary pixel conversion.
 // A source snapshot and a private output file prevent races with destination names.
+#[allow(dead_code)] // Compatibility entry point used by existing verification binaries.
 pub fn jpeg_reconstruction(
+    tools: &Path,
+    input: &Path,
+    dir: &Path,
+    wrap: bool,
+    reference: Option<&Path>,
+    cancel: &AtomicBool,
+) -> Result<(PathBuf, String, bool)> {
+    let (path, hash, verified, warnings) =
+        jpeg_reconstruction_with_warnings(tools, input, dir, wrap, reference, cancel)?;
+    for warning in warnings {
+        eprintln!("警告：{warning}");
+    }
+    Ok((path, hash, verified))
+}
+pub fn jpeg_reconstruction_with_warnings(
+    tools: &Path,
+    input: &Path,
+    dir: &Path,
+    wrap: bool,
+    reference: Option<&Path>,
+    cancel: &AtomicBool,
+) -> Result<(PathBuf, String, bool, Vec<String>)> {
+    check_job(cancel)?;
+    let job = Job::new()?;
+    let ((path, hash, verified), warnings) = job.finish_with_warnings(
+        jpeg_reconstruction_inner(tools, input, dir, wrap, reference, cancel),
+    )?;
+    let warnings = warnings
+        .into_iter()
+        .map(|w| format!("輸出已保存 {}；{w}", path.display()))
+        .collect();
+    Ok((path, hash, verified, warnings))
+}
+fn jpeg_reconstruction_inner(
     tools: &Path,
     input: &Path,
     dir: &Path,
@@ -995,6 +1560,9 @@ pub fn jpeg_reconstruction(
     if cancel.load(Ordering::Relaxed) {
         return Err("已取消".into());
     }
+    if !tools.is_absolute() {
+        return Err("JXL 工具路徑必須為絕對路徑".into());
+    }
     let ext = input
         .extension()
         .and_then(|s| s.to_str())
@@ -1003,7 +1571,7 @@ pub fn jpeg_reconstruction(
     if (wrap && ext != "jpg" && ext != "jpeg") || (!wrap && ext != "jxl") {
         return Err("此工具僅接受 JPEG → JXL 封裝或 JXL → 原始 JPEG 還原".into());
     }
-    let mut source = tempfile::tempfile().map_err(err)?;
+    let mut source = job_file()?;
     let mut original = File::open(input).map_err(err)?;
     std::io::copy(&mut original, &mut source).map_err(err)?;
     source.seek(SeekFrom::Start(0)).map_err(err)?;
@@ -1023,7 +1591,7 @@ pub fn jpeg_reconstruction(
             cancel,
         )?;
         output.as_file_mut().seek(SeekFrom::Start(0)).map_err(err)?;
-        let mut restored = tempfile::tempfile().map_err(err)?;
+        let mut restored = job_file()?;
         run(
             &djxl,
             &[
@@ -1071,6 +1639,7 @@ pub fn jpeg_reconstruction(
     if cancel.load(Ordering::Relaxed) {
         return Err("已取消".into());
     }
+    check_job(cancel)?;
     let result = publish(
         output,
         &destination,
@@ -1085,6 +1654,316 @@ mod tests {
     use super::*;
     use std::{fs, io::Write};
 
+    #[test]
+    fn psd_normalization_only_removes_empty_name_resources() {
+        fn resource(id: u16, name: &[u8], data: &[u8]) -> Vec<u8> {
+            let mut v = b"8BIM".to_vec();
+            v.extend(id.to_be_bytes());
+            v.push(name.len() as u8);
+            v.extend(name);
+            if (name.len() + 1) % 2 != 0 {
+                v.push(0);
+            }
+            v.extend((data.len() as u32).to_be_bytes());
+            v.extend(data);
+            if data.len() % 2 != 0 {
+                v.push(0);
+            }
+            v
+        }
+        let empty_a = resource(1006, b"", b"");
+        let icc = resource(1039, b"icc", b"ICC payload exactly preserved");
+        let exif = resource(1058, b"exif", b"EXIF bytes");
+        let nonempty_name = resource(1045, b"", b"nonempty alpha names");
+        let unknown = resource(4095, b"", b"");
+        let empty_b = resource(1045, b"", b"");
+        let kept = [
+            icc.clone(),
+            exif.clone(),
+            nonempty_name.clone(),
+            unknown.clone(),
+        ]
+        .concat();
+        let resources = [empty_a, icc, exif, nonempty_name, unknown, empty_b].concat();
+        let mut header = b"8BPS\0\x01".to_vec();
+        header.resize(26, 0);
+        header.extend(3u32.to_be_bytes());
+        header.extend(b"RGB");
+        let tail = b"layer/mask/composite data byte for byte";
+        let original = [
+            header.clone(),
+            (resources.len() as u32).to_be_bytes().to_vec(),
+            resources,
+            tail.to_vec(),
+        ]
+        .concat();
+        let expected = [
+            header.clone(),
+            (kept.len() as u32).to_be_bytes().to_vec(),
+            kept,
+            tail.to_vec(),
+        ]
+        .concat();
+        let mut file = tempfile::tempfile().unwrap();
+        file.write_all(&original).unwrap();
+        let mut normalized = psd_compatible_source(&mut file, &AtomicBool::new(false))
+            .unwrap()
+            .unwrap();
+        let mut bytes = Vec::new();
+        normalized.read_to_end(&mut bytes).unwrap();
+        assert_eq!(bytes, expected);
+        file.seek(SeekFrom::Start(0)).unwrap();
+        bytes.clear();
+        file.read_to_end(&mut bytes).unwrap();
+        assert_eq!(bytes, original);
+        assert!(
+            psd_compatible_source(&mut normalized, &AtomicBool::new(false))
+                .unwrap()
+                .is_none()
+        );
+        file.set_len((header.len() + 5) as u64).unwrap();
+        assert!(
+            psd_compatible_source(&mut file, &AtomicBool::new(false))
+                .unwrap_err()
+                .contains("範圍")
+        );
+    }
+    #[test]
+    fn strict_cicp_fields_and_supported_sdr() {
+        for text in ["1/13/6/1", "1/1/1/0", "1/13/0/1"] {
+            validate_avif_cicp(text).unwrap();
+        }
+        for text in [
+            "",
+            "1/13",
+            "1/x/13/6/1",
+            "1//6/1",
+            "9/16/9/1",
+            "9/18/9/1",
+            "12/13/6/1",
+            "1/2/6/1",
+            "1/13/99/1",
+            "1/13/6/2",
+            "1/13/6/1/0",
+        ] {
+            assert!(validate_avif_cicp(text).is_err(), "{text}");
+        }
+    }
+    #[test]
+    fn private_engine_rejects_relative_missing_and_wrong_policy() {
+        assert!(validate_engine(Path::new("ImageMagick/magick.exe")).is_err());
+        let dir = tempfile::tempdir().unwrap();
+        let engine = dir.path().join("magick.exe");
+        fs::write(&engine, b"must not execute").unwrap();
+        assert!(validate_engine(&engine).unwrap_err().contains("policy"));
+        fs::write(dir.path().join("policy.xml"), b"wrong").unwrap();
+        assert!(validate_engine(&engine).unwrap_err().contains("policy"));
+        fs::write(
+            dir.path().join("policy.xml"),
+            include_bytes!("../assets/policy-v13.xml"),
+        )
+        .unwrap();
+        assert!(validate_engine(&engine).unwrap_err().contains("coder"));
+    }
+    #[test]
+    fn jxl_locator_errors_are_recoverable() {
+        assert!(
+            locate_jxl_tools(Err(std::io::Error::other("injected current_exe failure")))
+                .unwrap_err()
+                .contains("injected")
+        );
+        let dir = tempfile::tempdir().unwrap();
+        let executable = dir.path().join("imb-c.exe");
+        assert!(
+            locate_jxl_tools(Ok(executable.clone()))
+                .unwrap_err()
+                .contains("缺少")
+        );
+        fs::create_dir(dir.path().join("JXL")).unwrap();
+        for file in ["cjxl.exe", "djxl.exe"] {
+            fs::write(dir.path().join("JXL").join(file), []).unwrap();
+        }
+        assert_eq!(
+            locate_jxl_tools(Ok(executable)).unwrap(),
+            dir.path().join("JXL")
+        );
+    }
+    #[test]
+    fn job_deadline_stops_later_stages_and_preserves_cancellation() {
+        let job = Job::new().unwrap();
+        let root = job_dir();
+        let input = job_file().unwrap();
+        let output = job_file().unwrap();
+        JOB.with(|j| {
+            j.borrow_mut().as_mut().unwrap().1 = Instant::now() - Duration::from_millis(1)
+        });
+        let off = AtomicBool::new(false);
+        let e = run(Path::new("must-not-launch.exe"), &[], &input, &output, &off).unwrap_err();
+        assert!(e.contains("總期限"), "{e}");
+        assert_eq!(check_job(&AtomicBool::new(true)).unwrap_err(), "已取消");
+        drop((input, output));
+        assert!(job.finish::<()>(Err(e)).is_err());
+        assert!(!root.exists());
+    }
+    #[test]
+    fn job_retains_parent_when_child_stop_is_unknown() {
+        let job = Job::new().unwrap();
+        let root = job_dir();
+        JOB.with(|j| j.borrow_mut().as_mut().unwrap().2 = true);
+        assert!(
+            job.finish::<()>(Err("injected wait failure".into()))
+                .unwrap_err()
+                .contains("保留")
+        );
+        assert!(root.exists());
+        // This fixture never started a child; deleting this exact test directory is safe.
+        fs::remove_dir(&root).unwrap();
+    }
+    #[test]
+    fn psd_resource_error_keeps_original_and_adds_actionable_hint() {
+        let message = image_stage_error(
+            "identify",
+            "exit 1: Invalid PSD resource block offset".into(),
+        );
+        assert!(message.contains("Invalid PSD resource block offset"));
+        assert!(message.contains("另存新檔"));
+    }
+    #[cfg(windows)]
+    #[test]
+    fn total_deadline_includes_multiple_child_stages() {
+        let job = Job::new().unwrap();
+        let root = job_dir();
+        let shell = PathBuf::from(std::env::var_os("SystemRoot").unwrap())
+            .join("System32/WindowsPowerShell/v1.0/powershell.exe");
+        let input = job_file().unwrap();
+        let output = job_file().unwrap();
+        let off = AtomicBool::new(false);
+        // Each child has a 10-second allowance, but they share a 3-second job deadline.
+        JOB.with(|j| j.borrow_mut().as_mut().unwrap().1 = Instant::now() + Duration::from_secs(3));
+        run_with_timeout(
+            &shell,
+            &["-NoProfile", "-Command", "Start-Sleep -Milliseconds 500"],
+            &input,
+            &output,
+            &off,
+            Duration::from_secs(10),
+        )
+        .unwrap();
+        let e = run_with_timeout(
+            &shell,
+            &["-NoProfile", "-Command", "Start-Sleep -Seconds 5"],
+            &input,
+            &output,
+            &off,
+            Duration::from_secs(10),
+        )
+        .unwrap_err();
+        assert!(e.contains("總期限"), "{e}");
+        assert!(
+            run(&shell, &[], &input, &output, &off)
+                .unwrap_err()
+                .contains("總期限")
+        );
+        drop((input, output));
+        job.finish(Ok(())).unwrap();
+        assert!(!root.exists());
+    }
+    #[test]
+    #[ignore = "Requires v1.3 runtime; set IMBC_TEST_ENGINE"]
+    fn private_policy_is_applied_and_forbidden_coders_are_denied() {
+        let engine = PathBuf::from(std::env::var_os("IMBC_TEST_ENGINE").unwrap());
+        let job = Job::new().unwrap();
+        let off = AtomicBool::new(false);
+        let mut source = job_file().unwrap();
+        let mut out = job_file().unwrap();
+        run(&engine, &["-list", "policy"], &source, &out, &off).unwrap();
+        out.seek(SeekFrom::Start(0)).unwrap();
+        let mut text = String::new();
+        out.read_to_string(&mut text).unwrap();
+        assert!(
+            text.contains("policy.xml") && text.contains("Delegate") && text.contains("8GiB"),
+            "{text}"
+        );
+        assert!(!text.contains("hostile-policy"), "{text}");
+        source
+            .write_all(b"<svg xmlns='http://www.w3.org/2000/svg' width='1' height='1'/>")
+            .unwrap();
+        source.seek(SeekFrom::Start(0)).unwrap();
+        out.set_len(0).unwrap();
+        out.seek(SeekFrom::Start(0)).unwrap();
+        let error = run(&engine, &["svg:-", "png:-"], &source, &out, &off).unwrap_err();
+        assert!(
+            error.contains("security policy") || error.contains("not authorized"),
+            "{error}"
+        );
+        assert_eq!(out.metadata().unwrap().len(), 0);
+        drop((source, out));
+        job.finish(Ok(())).unwrap();
+    }
+    #[test]
+    #[ignore = "Requires v1.3 runtime; set IMBC_TEST_ENGINE"]
+    fn special_temp_root_pixel_icc_and_target_profile() {
+        let engine = PathBuf::from(std::env::var_os("IMBC_TEST_ENGINE").unwrap());
+        let dir = tempfile::tempdir().unwrap();
+        let special = dir.path().join("中文 空白 %03d [1]");
+        fs::create_dir(&special).unwrap();
+        let src = dir.path().join("source.png");
+        fs::write(
+            &src,
+            include_bytes!("../tests/fixtures/acceptance-v13/icc8.png"),
+        )
+        .unwrap();
+        let profile =
+            PathBuf::from(r"C:\Windows\System32\spool\drivers\color\sRGB Color Space Profile.icm");
+        let options = Options {
+            target_icc: Some(profile),
+            ..Default::default()
+        };
+        let off = AtomicBool::new(false);
+        let job = Job::new_in(&special).unwrap();
+        let root = job_dir();
+        let (_, verification) = job
+            .finish(convert_with_options_inner(
+                &engine,
+                &src,
+                dir.path(),
+                Format::Png,
+                &options,
+                &off,
+            ))
+            .unwrap();
+        assert!(verification.exact && verification.icc && verification.transformed);
+        assert!(!root.exists());
+        assert_eq!(fs::read_dir(&special).unwrap().count(), 0);
+    }
+    #[test]
+    #[ignore = "Read-only real PSD sample; set IMBC_TEST_ENGINE and IMBC_TEST_ASSETS"]
+    fn real_csp_psd_conversion_and_source_preservation() {
+        let Some(assets) = std::env::var_os("IMBC_TEST_ASSETS") else {
+            eprintln!(
+                "skipped real_csp_psd_conversion_and_source_preservation: \
+                 set IMBC_TEST_ASSETS to the folder containing rukamizugi.psd"
+            );
+            return;
+        };
+        let engine = PathBuf::from(std::env::var_os("IMBC_TEST_ENGINE").unwrap());
+        let input = PathBuf::from(assets).join("rukamizugi.psd");
+        let mut f = File::open(&input).unwrap();
+        let before = sha256(&mut f).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let result = convert_with_options(
+            &engine,
+            &input,
+            dir.path(),
+            Format::Jxl,
+            &Options::default(),
+            &AtomicBool::new(false),
+        );
+        assert_eq!(before, sha256(&mut f).unwrap());
+        let (_, v) = result.unwrap();
+        assert!(v.exact && v.icc);
+        println!("real PSD source SHA256={before}; {v}");
+    }
     #[test]
     fn verification_detects_changed_empty_and_float_samples() {
         use std::io::Write;
@@ -1190,12 +2069,25 @@ mod tests {
     #[test]
     fn png_cicp_parser_finds_color_metadata() {
         let mut f = tempfile::tempfile().unwrap();
+
+        // PNG signature
         f.write_all(b"\x89PNG\r\n\x1a\n").unwrap();
+
+        // cICP chunk
         f.write_all(&4u32.to_be_bytes()).unwrap();
         f.write_all(b"cICP").unwrap();
         f.write_all(&[9, 16, 0, 1]).unwrap();
         f.write_all(&0u32.to_be_bytes()).unwrap();
-        assert_eq!(png_color_chunks(&mut f).unwrap(), (Some([9, 16, 0, 1]), false));
+
+        // IEND chunk
+        f.write_all(&0u32.to_be_bytes()).unwrap();
+        f.write_all(b"IEND").unwrap();
+        f.write_all(&0xAE426082u32.to_be_bytes()).unwrap();
+
+        assert_eq!(
+            png_color_chunks(&mut f).unwrap(),
+            (Some([9, 16, 0, 1]), false)
+        );
     }
     #[test]
     #[ignore = "Requires v1.3 runtime; set IMBC_TEST_ENGINE"]
@@ -1203,13 +2095,22 @@ mod tests {
         let engine = PathBuf::from(std::env::var_os("IMBC_TEST_ENGINE").unwrap());
         let dir = tempfile::tempdir().unwrap();
         let input = dir.path().join("pq.png");
-        fs::write(&input, include_bytes!("../tests/fixtures/v13-cicp-only-pq.png")).unwrap();
+        fs::write(
+            &input,
+            include_bytes!("../tests/fixtures/v13-cicp-only-pq.png"),
+        )
+        .unwrap();
         let count = fs::read_dir(dir.path()).unwrap().count();
         for format in [Format::Png, Format::Tiff, Format::Jxl, Format::Avif] {
             let error = convert_with_options(
-                &engine, &input, dir.path(), format,
-                &Options::default(), &AtomicBool::new(false),
-            ).unwrap_err();
+                &engine,
+                &input,
+                dir.path(),
+                format,
+                &Options::default(),
+                &AtomicBool::new(false),
+            )
+            .unwrap_err();
             assert!(error.contains("cICP"), "{error}");
             assert_eq!(count, fs::read_dir(dir.path()).unwrap().count());
         }
@@ -1222,21 +2123,46 @@ mod tests {
         let original = include_bytes!("../tests/fixtures/acceptance-v13/baseline-metadata.jpg");
         for orientation in 1..=8u8 {
             let mut bytes = original.to_vec();
-            let tag = bytes.windows(4).position(|x| x == [0x12, 0x01, 0x03, 0x00]).unwrap();
+            let tag = bytes
+                .windows(4)
+                .position(|x| x == [0x12, 0x01, 0x03, 0x00])
+                .unwrap();
             bytes[tag + 8] = orientation;
             let input = dir.path().join(format!("orientation-{orientation}.jpg"));
             fs::write(&input, bytes).unwrap();
             let (avif, v) = convert_with_options(
-                &engine, &input, dir.path(), Format::Avif,
-                &Options::default(), &AtomicBool::new(false),
-            ).unwrap();
+                &engine,
+                &input,
+                dir.path(),
+                Format::Avif,
+                &Options::default(),
+                &AtomicBool::new(false),
+            )
+            .unwrap();
             let mut output = File::open(avif).unwrap();
-            let (_, _, w, h) = metadata(&engine, "avif:-", &mut output, &AtomicBool::new(false)).unwrap();
+            let (_, _, w, h) =
+                metadata(&engine, "avif:-", &mut output, &AtomicBool::new(false)).unwrap();
             assert_eq!((w, h), if orientation >= 5 { (13, 17) } else { (17, 13) });
             assert!(v.max_error < 0.15, "orientation {orientation}: {v}");
             let mut raw = File::open(&input).unwrap();
-            let mut a = extracted(&engine, "jpeg:-", &mut raw, "rgba", 16, &AtomicBool::new(false)).unwrap();
-            let mut b = extracted(&engine, "avif:-", &mut output, "rgba", 16, &AtomicBool::new(false)).unwrap();
+            let mut a = extracted(
+                &engine,
+                "jpeg:-",
+                &mut raw,
+                "rgba",
+                16,
+                &AtomicBool::new(false),
+            )
+            .unwrap();
+            let mut b = extracted(
+                &engine,
+                "avif:-",
+                &mut output,
+                "rgba",
+                16,
+                &AtomicBool::new(false),
+            )
+            .unwrap();
             let mut source_pixels = Vec::new();
             let mut output_pixels = Vec::new();
             a.read_to_end(&mut source_pixels).unwrap();
@@ -1245,23 +2171,37 @@ mod tests {
             for y in 0..h as usize {
                 for x in 0..w as usize {
                     let (sx, sy) = match orientation {
-                        1 => (x, y), 2 => (16 - x, y),
-                        3 => (16 - x, 12 - y), 4 => (x, 12 - y),
-                        5 => (y, x), 6 => (y, 12 - x),
-                        7 => (16 - y, 12 - x), 8 => (16 - y, x),
+                        1 => (x, y),
+                        2 => (16 - x, y),
+                        3 => (16 - x, 12 - y),
+                        4 => (x, 12 - y),
+                        5 => (y, x),
+                        6 => (y, 12 - x),
+                        7 => (16 - y, 12 - x),
+                        8 => (16 - y, x),
                         _ => unreachable!(),
                     };
                     for channel in 0..3 {
                         let source_index = (sy * 17 + sx) * 8 + channel * 2;
                         let output_index = (y * w as usize + x) * 8 + channel * 2;
-                        let from = u16::from_le_bytes(source_pixels[source_index..source_index+2].try_into().unwrap());
-                        let to = u16::from_le_bytes(output_pixels[output_index..output_index+2].try_into().unwrap());
+                        let from = u16::from_le_bytes(
+                            source_pixels[source_index..source_index + 2]
+                                .try_into()
+                                .unwrap(),
+                        );
+                        let to = u16::from_le_bytes(
+                            output_pixels[output_index..output_index + 2]
+                                .try_into()
+                                .unwrap(),
+                        );
                         error += from.abs_diff(to) as u64;
                     }
                 }
             }
-            assert!(error as f64 / (w * h * 3) as f64 / 65535. < 0.15,
-                "orientation {orientation}: pixel positions differ");
+            assert!(
+                error as f64 / (w * h * 3) as f64 / 65535. < 0.15,
+                "orientation {orientation}: pixel positions differ"
+            );
         }
     }
     #[test]
@@ -1468,7 +2408,7 @@ mod tests {
         });
         assert!(started.elapsed() < Duration::from_secs(5));
     }
-    fn inspect(engine: &Path) -> Command {
+    pub(super) fn inspect(engine: &Path) -> Command {
         let home = engine.parent().unwrap();
         let mut cmd = Command::new(engine);
         cmd.current_dir(home)
@@ -1643,3 +2583,15 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "regression_r2.rs"]
+mod regression_r2;
+
+#[cfg(test)]
+#[path = "regression_r3.rs"]
+mod regression_r3;
+
+#[cfg(test)]
+#[path = "regression_final.rs"]
+mod regression_final;

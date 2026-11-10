@@ -221,7 +221,9 @@ fn main() {
         .unwrap_err()
         .contains("取消")
     );
-    if !rows.is_empty() {fs::write(root.join("work/V13-RESULTS.txt"), rows.join("\n")).unwrap();}
+    if !rows.is_empty() {
+        fs::write(root.join("work/V13-RESULTS.txt"), rows.join("\n")).unwrap();
+    }
     println!(
         "PASS: quality, ICC conversion/rejection, 16-bit WebP rejection, JPEG byte roundtrip/mismatch/strict rejection, corrupt/animated/multipage/PSD/cancel safety"
     );

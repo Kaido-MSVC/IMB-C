@@ -172,6 +172,33 @@ pub const TEXT: &[[&str; 4]] = &[
         "ICC カラーマネジメント",
     ],
     ["診斷資訊", "诊断信息", "Diagnostics", "診断情報"],
+    [
+        "成功（無警告）",
+        "成功（无警告）",
+        "Succeeded (no warnings)",
+        "成功（警告なし）",
+    ],
+    [
+        "成功但有警告",
+        "成功但有警告",
+        "Succeeded with warnings",
+        "成功（警告あり）",
+    ],
+    ["警告", "警告", "Warnings", "警告"],
+    [
+        "查看警告報告",
+        "查看警告报告",
+        "View warning report",
+        "警告レポート",
+    ],
+    [
+        "警告報告可能不完整，請查看警告",
+        "警告报告可能不完整，请查看警告",
+        "Warning report may be incomplete; please review",
+        "警告レポートが不完全です。確認してください",
+    ],
+    ["上一頁", "上一页", "Previous page", "前のページ"],
+    ["下一頁", "下一页", "Next page", "次のページ"],
 ];
 pub fn text(lang: i32, key: usize) -> &'static str {
     TEXT[key][lang.clamp(0, 3) as usize]
