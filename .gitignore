@@ -29,6 +29,7 @@ __pycache__/
 !/THIRD-PARTY-NOTICES.md
 !RELEASE-NOTES-*.md
 !/INSTALL.md
+!/RELEASE-CHECKLIST.md
 /installer/wix7/
 /installer/wix7-v1.2.1/
 /installer/wix7-v1.3.0/Installer-Terms.txt
