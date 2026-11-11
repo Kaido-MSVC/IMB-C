@@ -222,9 +222,9 @@ mod tests {
     fn n1_display_path_strips_verbatim_prefixes_only_for_display() {
         use crate::engine::display_path;
         let cases = [
-            (r"D:\don\out\a.webp", r"D:\don\out\a.webp"),
+            (r"D:\out\out\a.webp", r"D:\out\out\a.webp"),
             (r"D:\圖片\色彩 測試\a (2).webp", r"D:\圖片\色彩 測試\a (2).webp"),
-            (r"\\?\D:\don\xxx (2).webp", r"D:\don\xxx (2).webp"),
+            (r"\\?\D:\out\xxx (2).webp", r"D:\out\xxx (2).webp"),
             (r"\\?\UNC\server\共用 資料\a.png", r"\\server\共用 資料\a.png"),
             (r"\\server\share\a.png", r"\\server\share\a.png"),
             (r"\\?\Volume{0000}\a.png", r"\\?\Volume{0000}\a.png"),
@@ -243,9 +243,9 @@ mod tests {
         assert_eq!(
             crate::engine::plain_error_text(format!(
                 "x (os error 5) at path {:?}",
-                Path::new(r"\\?\D:\don\.tmp1")
+                Path::new(r"\\?\D:\out\.tmp1")
             )),
-            r"x (os error 5)；位置 D:\don\.tmp1"
+            r"x (os error 5)；位置 D:\out\.tmp1"
         );
     }
     #[test]

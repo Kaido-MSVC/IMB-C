@@ -6,10 +6,10 @@
 
 ## 1. 工作目錄
 
-- [ ] 在 GitHub clone（`D:\projects\IMB-C`）作業，`git status` 乾淨，`git fetch` 後確認與 `origin/main` 的差異都是本次要發布的 commit。
+- [ ] 在 GitHub clone 的工作目錄作業，`git status` 乾淨，`git fetch` 後確認與 `origin/main` 的差異都是本次要發布的 commit。
 - [ ] local-only 檔案（`待修正.md`、`BUGFIX-*`／`REVIEW-*`／`RELEASE-PREP-*` 報告、`dist\`、`work\`、`target\`）沒有進入版控：`git status --ignored` 確認它們列在 ignored。
 - [ ] 新增的根目錄 `.md` 若要公開，先在 `.gitignore` 加例外（`/*.md` 預設排除）。
-- [ ] 安裝定義 `installer\wix7-vX.Y.Z\` 目前**不在版控**（v1.3.1 的定義只在舊本機目錄 `D:\projects\IMB-C-local-20261110\installer\`）。開工時先決定要納入版控，或從舊目錄複製。
+- [ ] 安裝定義 `installer\wix7-vX.Y.Z\` 目前**不在版控**（v1.3.1 的定義只在改用 Git 前的舊本機工作目錄 `installer\` 內）。開工時先決定要納入版控，或從舊目錄複製。
 
 ## 2. 版號一致性
 
@@ -63,13 +63,14 @@ cargo test --release --locked --bin imb-c
 在專案根目錄執行。`IMBC_TEST_ENGINE` 一律用絕對路徑，指向本次要封裝的 runtime：
 
 ```powershell
-$env:IMBC_TEST_ENGINE = 'D:\projects\IMB-C\target\release\ImageMagick\magick.exe'
-$env:IMBC_TEST_UNC_ROOT = '\\localhost\D$\projects\IMB-C\work\<本次工作目錄>'
-$env:IMBC_TEST_ASSETS = 'D:\don\test'
+$root = (Get-Location).Path
+$env:IMBC_TEST_ENGINE = Join-Path $root 'target\release\ImageMagick\magick.exe'
+$env:IMBC_TEST_UNC_ROOT = '\\localhost\' + ($root -replace '^([A-Za-z]):', '$1$') + '\work\<本次工作目錄>'
+$env:IMBC_TEST_ASSETS = '<含 rukamizugi.psd 的資料夾>'
 cargo test --release --locked --bin imb-c -- --include-ignored --skip r2_child_temp_fixture --test-threads=1
 ```
 
-- 先建立 `work\<本次工作目錄>`；`IMBC_TEST_UNC_ROOT` 需要可存取的本機系統管理共用（`D$`）。
+- 先建立 `work\<本次工作目錄>`；`IMBC_TEST_UNC_ROOT` 需要可存取的本機系統管理共用（例如 `D$`）。
 - `IMBC_TEST_ASSETS` 是含 `rukamizugi.psd` 的資料夾；未設定時 `real_csp_psd_conversion_and_source_preservation` 會印出原因並跳過。
 - `r2_child_temp_fixture` 是父測試啟動的子程序入口，單獨執行沒有意義，一律 `--skip`。
 - ignored 測試都在 `--bin imb-c`。`verify-v12`、`verify-v13`、`acceptance-v13` 是驗收用 CLI，沒有 `#[test]`，`cargo test --bin verify-v13 -- --ignored` 會執行 0 項。
@@ -93,7 +94,7 @@ cargo test --release --locked --bin imb-c -- --include-ignored --skip r2_child_t
 
 ## 7. 授權
 
-- [ ] 依 `D:\licenses\README.md` 的規則處理；授權條文取自 `D:\licenses`，不重新下載。
+- [ ] 依本機授權範本資料夾 `README.md` 的規則處理；授權條文取自該資料夾，不重新下載。
 - [ ] 相依有變動時，以 `cargo tree -e normal --target x86_64-pc-windows-msvc` 比對 exe 實際連結的 crate 與 `licenses/rust/<名稱>-<版本>`，同步 `RUST-INVENTORY.csv`、`LICENSE-FILES-SHA256.csv`。
 - [ ] 原生 runtime 有變動時，同步 `RUNTIME-MANIFEST-*.json` 與 `THIRD-PARTY-NOTICES.md`。
 
@@ -101,7 +102,7 @@ cargo test --release --locked --bin imb-c -- --include-ignored --skip r2_child_t
 
 掃描範圍：Portable 解壓後所有檔案（含 exe／DLL）、MSI payload、Source.zip 與封包內的 app-source ZIP（逐檔）。
 
-- [ ] 搜尋 `D:\projects`、`C:\Users`、本機使用者名稱、`D:\don`、`work/`、`\\localhost`、備份副檔名（`.bak`、`.old`、`.tmp`）、`.env`、金鑰類副檔名（`.pfx`、`.p12`、`.key`、`.pem`、`.snk`）、`.pdb`／`.wixpdb`。
+- [ ] 搜尋專案與工作目錄的絕對路徑、`C:\Users`、本機使用者名稱、測試素材資料夾、`work/`、`\\localhost`、備份副檔名（`.bak`、`.old`、`.tmp`）、`.env`、金鑰類副檔名（`.pfx`、`.p12`、`.key`、`.pem`、`.snk`）、`.pdb`／`.wixpdb`。
 - [ ] exe 內的路徑應已重映射為 `.` 與 `/build-user`；有命中就不要打包。
 - [ ] 第三方相應來源內的上游範例（例如 glib 測試 PEM、WiX 的 `wix.snk`）不屬於本專案，記錄即可。
 
