@@ -9,7 +9,7 @@
 - [ ] 在 GitHub clone 的工作目錄作業，`git status` 乾淨，`git fetch` 後確認與 `origin/main` 的差異都是本次要發布的 commit。
 - [ ] local-only 檔案（`待修正.md`、`BUGFIX-*`／`REVIEW-*`／`RELEASE-PREP-*` 報告、`dist\`、`work\`、`target\`）沒有進入版控：`git status --ignored` 確認它們列在 ignored。
 - [ ] 新增的根目錄 `.md` 若要公開，先在 `.gitignore` 加例外（`/*.md` 預設排除）。
-- [ ] 安裝定義 `installer\wix7-vX.Y.Z\` 目前**不在版控**（v1.3.1 的定義只在改用 Git 前的舊本機工作目錄 `installer\` 內）。開工時先決定要納入版控，或從舊目錄複製。
+- [ ] 安裝定義：v1.3.2 起 `installer\wix7-vX.Y.Z\` 的 5 個來源檔（`make-msi-source.py`、`Build.ps1`、`inspect-msi.ps1`、`README.md`、`UPGRADE-POLICY.md`）納入版控；產生的 `Release.wxs`、`Installer-Terms.*`、`TERMS-INVENTORY.json` 由 `.gitignore` 排除。新版本從上一版的資料夾複製，只改版本識別並換新 ProductCode。v1.3.1 以前的定義只在改用 Git 前的舊本機工作目錄 `installer\` 內。
 
 ## 2. 版號一致性
 

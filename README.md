@@ -1,4 +1,4 @@
-# IMB-C v1.3.1
+# IMB-C v1.3.2
 
 Copyright (c) 2026 Kaido-MSVC。IMB-C 應用程式原始碼採 [MIT 授權](LICENSE)。ImageMagick、libjxl、Slint、FreeType、Microsoft VC++ Runtime 等第三方元件各有自己的授權與散布條件，並未改為 MIT；詳見 [第三方授權清單](THIRD-PARTY-LICENSES-v1.3.0.md)。文件中的 `licenses/` 路徑指完整二進位封包，原始碼儲存庫中的原文材料位於 `third-party/materials/`；大型相應來源封存另由完整來源包提供。
 
@@ -18,7 +18,7 @@ The application code is [MIT-licensed](LICENSE). Bundled components have separat
 
 ## 下載
 
-從 [v1.3.1 Release](https://github.com/Kaido-MSVC/IMB-C/releases/tag/v1.3.1) 下載 Portable ZIP、Windows x64 MSI、完整相應來源 ZIP 及 `SHA256SUMS.txt`。GitHub 自動產生的 Source code ZIP 不包含大型第三方相應來源；需要重建或履行 LGPL 散布義務時，請使用另附的完整相應來源包與封包內的來源／替換材料。安裝與升級方式見 [INSTALL.md](INSTALL.md)，相對 1.3.0 的修正與行為變更見 [1.3.1 Release Notes](RELEASE-NOTES-1.3.1.md)。
+從 [v1.3.2 Release](https://github.com/Kaido-MSVC/IMB-C/releases/tag/v1.3.2) 下載 Portable ZIP、Windows x64 MSI、完整相應來源 ZIP 及 `SHA256SUMS.txt`。GitHub 自動產生的 Source code ZIP 不包含大型第三方相應來源；需要重建或履行 LGPL 散布義務時，請使用另附的完整相應來源包與封包內的來源／替換材料。安裝與升級方式見 [INSTALL.md](INSTALL.md)。1.3.2 的改善見 [1.3.2 Release Notes](RELEASE-NOTES-1.3.2.md)，相對 1.3.0 的修正與行為變更見 [1.3.1 Release Notes](RELEASE-NOTES-1.3.1.md)。
 
 附件內保留部分歷史 Personal-Use／candidate 名稱、好友交付與當時審查文字；正式發行頁及本 README 取代發行者自行規定的舊交付程序，並不修改第三方授權原文，也不表示第三方元件一律可以任意轉交。未簽章，請先核對 SHA-256。
 
@@ -28,11 +28,11 @@ IMB-C 的 exe 與 MSI 沒有程式碼簽章，所以 Windows 可能顯示「Wind
 
 1. **核對 SHA-256**：在下載資料夾開啟 PowerShell，執行
    ```powershell
-   Get-FileHash .\IMB-C-v1.3.1-x64.msi -Algorithm SHA256
+   Get-FileHash .\IMB-C-v1.3.2-x64.msi -Algorithm SHA256
    ```
-   把輸出的 Hash 與同一個 Release 的 `SHA256SUMS.txt` 對應列比較（大小寫不影響）。也可以用 `certutil -hashfile IMB-C-v1.3.1-x64.msi SHA256`。Portable ZIP 與來源 ZIP 用同樣方式核對。**不相符就不要執行**，請重新從 Release 頁下載。
+   把輸出的 Hash 與同一個 Release 的 `SHA256SUMS.txt` 對應列比較（大小寫不影響）。也可以用 `certutil -hashfile IMB-C-v1.3.2-x64.msi SHA256`。Portable ZIP 與來源 ZIP 用同樣方式核對。**不相符就不要執行**，請重新從 Release 頁下載。
 2. **SmartScreen 放行**：核對相符後，在「Windows 已保護您的電腦」視窗按「其他資訊」，確認檔名後按「仍要執行」。
-3. **Portable 解除封鎖**：解壓前先在 ZIP 上按右鍵 →「內容」→ 勾選「解除封鎖」→「確定」，避免解壓出的每個檔案都被標記成來自網際網路。也可以在 PowerShell 執行 `Unblock-File .\IMB-C-v1.3.1-Portable.zip`。
+3. **Portable 解除封鎖**：解壓前先在 ZIP 上按右鍵 →「內容」→ 勾選「解除封鎖」→「確定」，避免解壓出的每個檔案都被標記成來自網際網路。也可以在 PowerShell 執行 `Unblock-File .\IMB-C-v1.3.2-Portable.zip`。
 
 ## Microsoft Runtime 條款
 
