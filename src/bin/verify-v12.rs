@@ -1,5 +1,10 @@
+// engine.rs is shared with the GUI binary; this tool does not call every helper
+// (e.g. Format::from_index, locate_engine), so dead_code is allowed only here.
+#[allow(dead_code)]
 #[path = "../engine.rs"]
 mod engine;
+// imports.rs is shared with the GUI; imports::folder is unused by this tool.
+#[allow(dead_code)]
 #[path = "../imports.rs"]
 mod imports;
 use std::{
