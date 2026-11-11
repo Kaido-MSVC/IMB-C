@@ -40,7 +40,8 @@ impl Journal {
             // with a bounded excerpt in the persistent completion status/viewer.
             if self.summary.error.is_none() {
                 let detail = format!(
-                    "警告報告無法完整保存：{e}；來源 {input:?}；本次警告：{}",
+                    "警告報告無法完整保存：{e}；來源 {}；本次警告：{}",
+                    input.display(),
                     warnings.join("；")
                 );
                 self.summary.error = Some(detail.chars().take(8192).collect());
@@ -57,7 +58,10 @@ impl Journal {
                 .rand_bytes(16)
                 .prefix("IMB-C-warnings-")
                 .suffix(".txt")
-                .tempfile_in(&self.root)?;
+                .tempfile_in(&self.root)
+                .map_err(|e| {
+                    io::Error::new(e.kind(), crate::engine::plain_error_text(e.to_string()))
+                })?;
             let (file, path) = temp.keep().map_err(|e| e.error)?;
             self.file = Some(file);
             self.summary.path = Some(path);
@@ -67,7 +71,7 @@ impl Journal {
             )?;
         }
         let f = self.file.as_mut().unwrap();
-        writeln!(f, "[{}] Source: {input:?}", self.summary.files)?;
+        writeln!(f, "[{}] Source: {}", self.summary.files, input.display())?;
         for warning in warnings {
             writeln!(f, "Warning: {warning}")?;
         }
@@ -183,6 +187,51 @@ mod tests {
         assert_eq!(s.files, 0);
         assert!(s.path.is_none());
         assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+    }
+    #[test]
+    fn n1_report_source_paths_are_plain_windows_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut j = Journal::new(dir.path());
+        let sources = [
+            r"D:\圖片\色彩 測試\a b.png",
+            r"\\server\共用 資料\批次\c.avif",
+            r"C:\Program Files\IMB-C\樣本.jxl",
+        ];
+        for source in sources {
+            j.record(Path::new(source), &["w".into()]).unwrap();
+        }
+        let s = j.finish(3, 0, 0);
+        let text = std::fs::read_to_string(s.path.unwrap()).unwrap();
+        for (i, source) in sources.iter().enumerate() {
+            assert!(
+                text.contains(&format!("[{}] Source: {source}\n", i + 1)),
+                "{text}"
+            );
+        }
+        assert!(!text.contains('"') && !text.contains(r"D:\\") && !text.contains(r"\\\\"));
+        // Storage-failure detail shown in the UI uses the same plain form.
+        let mut failed = Journal::new(&dir.path().join("missing"));
+        assert!(failed.record(Path::new(sources[1]), &["w".into()]).is_err());
+        let detail = failed.finish(1, 0, 0).error.unwrap();
+        assert!(detail.contains(&format!("來源 {}；", sources[1])), "{detail}");
+        assert!(!detail.contains('"'), "{detail}");
+        let missing = dir.path().join("missing").display().to_string();
+        assert!(detail.contains(&format!("位置 {missing}\\IMB-C-warnings-")), "{detail}");
+    }
+    #[test]
+    fn n1_engine_io_errors_show_plain_paths() {
+        for path in [
+            r"D:\圖片\色彩 測試\.tmpAbc",
+            r"\\server\共用 資料\批次\.tmpXyz",
+        ] {
+            let tempfile_style = format!("存取被拒。 (os error 5) at path {path:?}");
+            assert_eq!(
+                crate::engine::plain_error_text(tempfile_style),
+                format!("存取被拒。 (os error 5)；位置 {path}")
+            );
+        }
+        let other = "引擎錯誤 at path without quotes".to_string();
+        assert_eq!(crate::engine::plain_error_text(other.clone()), other);
     }
     #[test]
     fn r3_warning_pages_keep_utf8_at_boundaries() {

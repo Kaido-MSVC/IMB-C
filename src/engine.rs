@@ -17,7 +17,30 @@ use tempfile::NamedTempFile;
 
 type Result<T> = std::result::Result<T, String>;
 fn err(e: impl std::fmt::Display) -> String {
-    e.to_string()
+    plain_error_text(e.to_string())
+}
+
+/// tempfile 3.27 reports `<os error> at path "<Debug path>"`, which doubles every
+/// backslash and adds quotes. Rewrite that suffix as a plain, copyable Windows path.
+pub fn plain_error_text(message: String) -> String {
+    let Some((cause, quoted)) = message.rsplit_once(" at path ") else {
+        return message;
+    };
+    let Some(inner) = quoted.strip_prefix('"').and_then(|q| q.strip_suffix('"')) else {
+        return message;
+    };
+    let mut path = String::with_capacity(inner.len());
+    let mut chars = inner.chars();
+    while let Some(c) = chars.next() {
+        match (c, chars.clone().next()) {
+            ('\\', Some(next @ ('\\' | '"' | '\''))) => {
+                path.push(next);
+                chars.next();
+            }
+            _ => path.push(c),
+        }
+    }
+    format!("{cause}；位置 {path}")
 }
 
 #[derive(Clone, Copy, Debug)]
