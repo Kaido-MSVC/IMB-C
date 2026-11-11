@@ -199,6 +199,15 @@ pub const TEXT: &[[&str; 4]] = &[
     ],
     ["上一頁", "上一页", "Previous page", "前のページ"],
     ["下一頁", "下一页", "Next page", "次のページ"],
+    ["開啟報告", "打开报告", "Open report", "レポートを開く"],
+    ["確定", "确定", "OK", "OK"],
+    ["警告報告：", "警告报告：", "Warning report:", "警告レポート："],
+    [
+        "無法開啟警告報告",
+        "无法打开警告报告",
+        "Could not open the warning report",
+        "警告レポートを開けません",
+    ],
 ];
 pub fn text(lang: i32, key: usize) -> &'static str {
     TEXT[key][lang.clamp(0, 3) as usize]

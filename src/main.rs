@@ -20,7 +20,7 @@ use std::{
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 slint::slint! {
-    import { VerticalBox, HorizontalBox, Button, ComboBox, ProgressIndicator, TextEdit, AboutSlint, CheckBox, ScrollView, SpinBox } from "std-widgets.slint";
+    import { VerticalBox, HorizontalBox, Button, ComboBox, ProgressIndicator, TextEdit, AboutSlint, CheckBox, ScrollView, SpinBox, LineEdit } from "std-widgets.slint";
     export { Palette } from "std-widgets.slint";
     component FormatPicker inherits Rectangle {
         in property <bool> enabled: true;
@@ -102,12 +102,37 @@ slint::slint! {
         VerticalBox {
             padding: 16px; spacing: 10px;
             Text { text: root.summary; wrap: word-wrap; }
-            Text { text: root.report-path; wrap: word-wrap; }
+            if root.report-path != "": LineEdit { text: root.report-path; read-only: true; }
             TextEdit { text: root.content; read-only: true; vertical-stretch: 1; }
             HorizontalBox {
                 Button { text: root.words[58]; enabled: root.has-previous; clicked => { root.previous(); } }
                 Text { text: (root.page + 1); vertical-alignment: center; }
                 Button { text: root.words[59]; enabled: root.has-next; clicked => { root.next(); } }
+            }
+        }
+    }
+    // Batch completion notice. The report path is a single-line, selectable field so a
+    // long path scrolls instead of breaking inside the file name.
+    export component CompletionWindow inherits Window {
+        in property <[string]> words;
+        in-out property <string> status;
+        in-out property <string> report-path;
+        callback open-report(); callback dismiss();
+        title: "IMB-C";
+        icon: @image-url("../assets/app.png");
+        preferred-width: 560px; min-width: 420px;
+        VerticalBox {
+            padding: 20px; spacing: 12px;
+            Text { text: root.status; wrap: word-wrap; }
+            if root.report-path != "": VerticalLayout {
+                spacing: 4px;
+                Text { text: root.words[62]; }
+                LineEdit { text: root.report-path; read-only: true; }
+            }
+            HorizontalLayout {
+                alignment: end; spacing: 8px;
+                if root.report-path != "": Button { text: root.words[60]; primary: true; clicked => { root.open-report(); } }
+                Button { text: root.words[61]; primary: root.report-path == ""; clicked => { root.dismiss(); } }
             }
         }
     }
@@ -240,6 +265,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let help = HelpWindow::new()?;
     let jxl = JxlWindow::new()?;
     let warnings_window = WarningWindow::new()?;
+    let completion = CompletionWindow::new()?;
+    let cw = completion.as_weak();
+    completion.on_dismiss(move || {
+        let _ = cw.unwrap().hide();
+    });
+    let cw = completion.as_weak();
+    completion.on_open_report(move || {
+        let w = cw.unwrap();
+        let path = PathBuf::from(w.get_report_path().as_str());
+        if let Err(e) = open_with_default_app(&path) {
+            let words = w.get_words();
+            let heading = slint::Model::row_data(&words, 63).unwrap_or_default();
+            rfd::MessageDialog::new()
+                .set_title("IMB-C")
+                .set_level(rfd::MessageLevel::Error)
+                .set_description(format!("{heading}\n{}\n{e}", path.display()))
+                .show();
+        }
+    });
     let ww = warnings_window.as_weak();
     let aw = app.as_weak();
     app.on_show_warnings(move || {
@@ -542,8 +586,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let warnings_weak = warnings_window.as_weak();
     let close_cancel = cancel.clone();
     let help_weak = help.as_weak();
+    let completion_close = completion.as_weak();
     app.window().on_close_requested(move || {
         close_cancel.store(true, Ordering::Relaxed);
+        if let Some(window) = completion_close.upgrade() {
+            let _ = window.hide();
+        }
         if let Some(window) = warnings_weak.upgrade() {
             let _ = window.hide();
         }
@@ -568,6 +616,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let c = cancel.clone();
     let worker_slot = worker.clone();
     let jxl_weak = jxl.as_weak();
+    let completion_weak = completion.as_weak();
     app.on_start(move || {
         let a = weak.unwrap();
         if a.get_busy() {
@@ -576,6 +625,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if let Some(window) = jxl_weak.upgrade() {
             let _ = window.hide();
         }
+        if let Some(window) = completion_weak.upgrade() {
+            let _ = window.hide();
+        }
+        let completion_weak = completion_weak.clone();
         let s = state.borrow();
         let Some(folder) = s.output.clone() else {
             return;
@@ -717,10 +770,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 a.set_failures(failures as i32);
                 a.set_phase(if stopped { 4 } else { 3 });
                 if notify && !stopped {
-                    rfd::MessageDialog::new()
-                        .set_title("IMB-C")
-                        .set_description(format!("{}\n{}", a.get_status(), a.get_warning_report()))
-                        .show();
+                    if let Some(w) = completion_weak.upgrade() {
+                        w.set_words(a.get_words());
+                        w.set_status(a.get_status());
+                        w.set_report_path(a.get_warning_report());
+                        w.global::<Palette>()
+                            .set_color_scheme(a.global::<Palette>().get_color_scheme());
+                        let _ = w.show();
+                    }
                 }
             });
         });
@@ -810,6 +867,49 @@ fn apply_preferences(app: &AppWindow, about: &AboutWindow, help: &HelpWindow) {
     help.global::<Palette>().set_color_scheme(scheme);
 }
 
+/// Open a file with its associated program; failures are returned, never panicked on.
+#[cfg(windows)]
+fn open_with_default_app(path: &std::path::Path) -> Result<(), String> {
+    use std::os::windows::ffi::OsStrExt;
+    #[link(name = "shell32")]
+    unsafe extern "system" {
+        fn ShellExecuteW(
+            hwnd: *mut std::ffi::c_void,
+            operation: *const u16,
+            file: *const u16,
+            parameters: *const u16,
+            directory: *const u16,
+            show: i32,
+        ) -> isize;
+    }
+    if path.as_os_str().is_empty() || !path.is_file() {
+        return Err(std::io::Error::from(std::io::ErrorKind::NotFound).to_string());
+    }
+    let wide = |s: &std::ffi::OsStr| s.encode_wide().chain(Some(0)).collect::<Vec<u16>>();
+    let operation = wide("open".as_ref());
+    let file = wide(path.as_os_str());
+    // SAFETY: both strings are NUL-terminated UTF-16 buffers that outlive the call.
+    let code = unsafe {
+        ShellExecuteW(
+            std::ptr::null_mut(),
+            operation.as_ptr(),
+            file.as_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+            1, // SW_SHOWNORMAL
+        )
+    };
+    if code > 32 {
+        Ok(())
+    } else {
+        let os = std::io::Error::last_os_error();
+        Err(match os.raw_os_error() {
+            Some(0) | None => format!("ShellExecuteW error {code}"),
+            Some(_) => os.to_string(),
+        })
+    }
+}
+
 // Retain at most 200 lines and 64 KiB of recent text.
 fn append_log(previous: &str, line: &str) -> String {
     let combined = format!("{previous}{line}\n");
@@ -839,6 +939,13 @@ fn folder_dialog(path: &str) -> rfd::FileDialog {
 
 #[cfg(test)]
 mod warning_ui_tests {
+    #[test]
+    fn n2_open_report_reports_missing_file_instead_of_panicking() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(super::open_with_default_app(&dir.path().join("無 報告.txt")).is_err());
+        assert!(super::open_with_default_app(std::path::Path::new("")).is_err());
+        assert!(super::open_with_default_app(dir.path()).is_err());
+    }
     #[test]
     fn final_150_warning_counts_and_report_survive_200_line_log() {
         let dir = tempfile::tempdir().unwrap();
