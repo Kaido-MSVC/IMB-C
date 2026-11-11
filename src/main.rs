@@ -98,11 +98,15 @@ slint::slint! {
         in-out property <int> page: 0;
         in-out property <bool> has-previous: false;
         in-out property <bool> has-next: false;
-        callback previous(); callback next();
+        callback previous(); callback next(); callback open-report();
         VerticalBox {
             padding: 16px; spacing: 10px;
             Text { text: root.summary; wrap: word-wrap; }
-            if root.report-path != "": LineEdit { text: root.report-path; read-only: true; }
+            if root.report-path != "": HorizontalLayout {
+                spacing: 8px;
+                LineEdit { text: root.report-path; read-only: true; horizontal-stretch: 1; }
+                Button { text: root.words[60]; clicked => { root.open-report(); } }
+            }
             TextEdit { text: root.content; read-only: true; vertical-stretch: 1; }
             HorizontalBox {
                 Button { text: root.words[58]; enabled: root.has-previous; clicked => { root.previous(); } }
@@ -266,26 +270,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let jxl = JxlWindow::new()?;
     let warnings_window = WarningWindow::new()?;
     let completion = CompletionWindow::new()?;
+    // Internal report path for file operations (may be verbatim or longer than 260
+    // characters); the `report-path` properties only hold the display_path text.
+    let report_file = ReportFile::default();
     let cw = completion.as_weak();
     completion.on_dismiss(move || {
         let _ = cw.unwrap().hide();
     });
     let cw = completion.as_weak();
+    let report = report_file.clone();
     completion.on_open_report(move || {
-        let w = cw.unwrap();
-        let path = PathBuf::from(w.get_report_path().as_str());
-        if let Err(e) = open_with_default_app(&path) {
-            let words = w.get_words();
-            let heading = slint::Model::row_data(&words, 63).unwrap_or_default();
-            rfd::MessageDialog::new()
-                .set_title("IMB-C")
-                .set_level(rfd::MessageLevel::Error)
-                .set_description(format!("{heading}\n{}\n{e}", engine::display_path(&path)))
-                .show();
-        }
+        open_report(report.get(), &cw.unwrap().get_words());
+    });
+    let ww = warnings_window.as_weak();
+    let report = report_file.clone();
+    warnings_window.on_open_report(move || {
+        open_report(report.get(), &ww.unwrap().get_words());
     });
     let ww = warnings_window.as_weak();
     let aw = app.as_weak();
+    let report = report_file.clone();
     app.on_show_warnings(move || {
         let a = aw.unwrap();
         let w = ww.unwrap();
@@ -293,20 +297,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         w.set_summary(a.get_status());
         w.set_report_error(a.get_warning_report_error());
         w.set_report_path(a.get_warning_report());
-        load_warning_page(&w, 0);
+        load_warning_page(&w, report.get().as_deref(), 0);
         let _ = w.show();
     });
     let ww = warnings_window.as_weak();
+    let report = report_file.clone();
     warnings_window.on_previous(move || {
         let w = ww.unwrap();
         let page = w.get_page().saturating_sub(1).max(0);
-        load_warning_page(&w, page);
+        load_warning_page(&w, report.get().as_deref(), page);
     });
     let ww = warnings_window.as_weak();
+    let report = report_file.clone();
     warnings_window.on_next(move || {
         let w = ww.unwrap();
         let page = w.get_page().saturating_add(1);
-        load_warning_page(&w, page);
+        load_warning_page(&w, report.get().as_deref(), page);
     });
     let prefs_path = preferences::path()?;
     let prefs = if prefs_path.is_file() {
@@ -617,6 +623,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let worker_slot = worker.clone();
     let jxl_weak = jxl.as_weak();
     let completion_weak = completion.as_weak();
+    let start_report = report_file.clone();
     app.on_start(move || {
         let a = weak.unwrap();
         if a.get_busy() {
@@ -629,6 +636,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let _ = window.hide();
         }
         let completion_weak = completion_weak.clone();
+        let report_file = start_report.clone();
         let s = state.borrow();
         let Some(folder) = s.output.clone() else {
             return;
@@ -651,7 +659,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         a.set_successes(0);
         a.set_warning_files(0);
         a.set_warning_count(0);
-        a.set_warning_report("".into());
+        a.set_warning_report(report_file.set(None).into());
         a.set_warning_report_error("".into());
         a.set_failures(0);
         a.set_cancelled(0);
@@ -757,13 +765,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 );
                 a.set_warning_files(warning_summary.files.min(i32::MAX as usize) as i32);
                 a.set_warning_count(warning_summary.messages.min(i32::MAX as usize) as i32);
-                a.set_warning_report(
-                    warning_summary
-                        .path
-                        .map(|p| engine::display_path(&p))
-                        .unwrap_or_default()
-                        .into(),
-                );
+                a.set_warning_report(report_file.set(warning_summary.path).into());
                 a.set_warning_report_error(warning_summary.error.unwrap_or_default().into());
                 a.set_cancelled(cancellations as i32);
                 a.set_progress(count as f32 / files.len().max(1) as f32);
@@ -793,9 +795,41 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn load_warning_page(window: &WarningWindow, page: i32) {
-    let path = PathBuf::from(window.get_report_path().as_str());
-    match batch_warnings::read_page(&path, page.max(0) as u64) {
+/// The current batch's warning report: the internal path is used to read and open the
+/// file, `set` returns the text shown on screen.
+#[derive(Clone, Default)]
+struct ReportFile(Arc<std::sync::Mutex<Option<PathBuf>>>);
+impl ReportFile {
+    fn set(&self, path: Option<PathBuf>) -> String {
+        let shown = path.as_ref().map(engine::display_path).unwrap_or_default();
+        *self.0.lock().unwrap_or_else(|e| e.into_inner()) = path;
+        shown
+    }
+    fn get(&self) -> Option<PathBuf> {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+}
+
+fn open_report(path: Option<PathBuf>, words: &slint::ModelRc<slint::SharedString>) {
+    let path = path.unwrap_or_default();
+    if let Err(e) = open_with_default_app(&path) {
+        let heading = slint::Model::row_data(words, 63).unwrap_or_default();
+        rfd::MessageDialog::new()
+            .set_title("IMB-C")
+            .set_level(rfd::MessageLevel::Error)
+            .set_description(format!("{heading}\n{}\n{e}", engine::display_path(&path)))
+            .show();
+    }
+}
+
+fn load_warning_page(window: &WarningWindow, path: Option<&std::path::Path>, page: i32) {
+    let Some(path) = path else {
+        window.set_content(window.get_report_error());
+        window.set_has_previous(false);
+        window.set_has_next(false);
+        return;
+    };
+    match batch_warnings::read_page(path, page.max(0) as u64) {
         Ok(data) => {
             let error = window.get_report_error();
             window.set_content(
@@ -939,6 +973,31 @@ fn folder_dialog(path: &str) -> rfd::FileDialog {
 
 #[cfg(test)]
 mod warning_ui_tests {
+    #[test]
+    fn report_file_keeps_internal_long_path_and_shows_display_path() {
+        let dir = tempfile::tempdir().unwrap();
+        // Verbatim, > 260 characters, Chinese and spaces.
+        let mut long = std::path::PathBuf::from(format!(r"\\?\{}", dir.path().display()));
+        for i in 0..6 {
+            long.push(format!("很長的 資料夾 {i} {}", "x".repeat(40)));
+        }
+        std::fs::create_dir_all(&long).unwrap();
+        let mut journal = crate::batch_warnings::Journal::new(&long);
+        journal
+            .record(std::path::Path::new("a.avif"), &["w".into()])
+            .unwrap();
+        let internal = journal.finish(1, 0, 0).path.unwrap();
+        assert!(internal.as_os_str().len() > 260);
+        let report = super::ReportFile::default();
+        let shown = report.set(Some(internal.clone()));
+        assert_eq!(report.get().as_deref(), Some(internal.as_path()));
+        assert!(!shown.starts_with(r"\\?\") && shown == crate::engine::display_path(&internal));
+        // File operations use the stored internal path.
+        let page = crate::batch_warnings::read_page(&report.get().unwrap(), 0).unwrap();
+        assert!(page.text.contains("Source: a.avif"));
+        assert_eq!(report.set(None), "");
+        assert!(report.get().is_none());
+    }
     #[test]
     fn n2_open_report_reports_missing_file_instead_of_panicking() {
         let dir = tempfile::tempdir().unwrap();
