@@ -810,34 +810,41 @@ pub struct Verification {
 }
 impl std::fmt::Display for Verification {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}; {}→{} bit; ICC {}; max={:.6}; RMSE={:.6}{}",
-            if self.exact {
-                "pixels exact ✓"
-            } else {
-                "pixels changed"
-            },
-            self.input_depth,
-            self.output_depth,
-            if self.icc && self.color_verified {
-                "preserved ✓"
+        // Build the line from fields and skip empty ones, so no stray separators appear.
+        // Plain words instead of "✓": the GUI font may render the glyph as blank space.
+        let fields = [
+            (if self.exact { "pixels exact" } else { "pixels changed" }).to_owned(),
+            format!("{}→{} bit", self.input_depth, self.output_depth),
+            (if self.icc && self.color_verified {
+                "ICC preserved"
             } else if self.icc {
-                "present; not verified"
+                "ICC present, not verified"
             } else {
-                "untagged"
-            },
-            self.max_error,
-            self.rmse,
-            if self.transformed {
-                "; compared after requested color/background conversion"
+                "ICC untagged"
+            })
+            .to_owned(),
+            format!("max={:.6}", self.max_error),
+            format!("RMSE={:.6}", self.rmse),
+            (if self.transformed {
+                "compared after requested color/background conversion"
             } else {
                 ""
-            }
-        )?;
-        if self.color_missing {
-            write!(f, "; color information not verified")?;
-        }
+            })
+            .to_owned(),
+            (if self.color_missing {
+                "color information not verified"
+            } else {
+                ""
+            })
+            .to_owned(),
+        ];
+        let line = fields
+            .iter()
+            .map(|field| field.trim())
+            .filter(|field| !field.is_empty())
+            .collect::<Vec<_>>()
+            .join("; ");
+        f.write_str(&line)?;
         for warning in &self.warnings {
             write!(f, "\n  警告：{warning}")?;
         }
@@ -1697,6 +1704,53 @@ fn jpeg_reconstruction_inner(
 mod tests {
     use super::*;
     use std::{fs, io::Write};
+
+    #[test]
+    fn verification_line_skips_empty_fields() {
+        let base = || Verification {
+            exact: false,
+            max_error: 0.5,
+            rmse: 0.25,
+            input_depth: 8,
+            output_depth: 8,
+            icc: true,
+            transformed: false,
+            color_verified: true,
+            color_missing: false,
+            warnings: Vec::new(),
+        };
+        let line = |v: Verification| v.to_string();
+        let preserved = line(base());
+        assert_eq!(
+            preserved,
+            "pixels changed; 8→8 bit; ICC preserved; max=0.500000; RMSE=0.250000"
+        );
+        let untagged = line(Verification {
+            exact: true,
+            icc: false,
+            color_verified: false,
+            color_missing: true,
+            ..base()
+        });
+        assert_eq!(
+            untagged,
+            "pixels exact; 8→8 bit; ICC untagged; max=0.500000; RMSE=0.250000; color information not verified"
+        );
+        let converted = line(Verification {
+            color_verified: false,
+            transformed: true,
+            warnings: vec!["w".into()],
+            ..base()
+        });
+        assert!(converted.starts_with(
+            "pixels changed; 8→8 bit; ICC present, not verified; max=0.500000; RMSE=0.250000; compared after requested color/background conversion\n  警告：w"
+        ));
+        for text in [preserved, untagged, converted] {
+            let first = text.lines().next().unwrap();
+            assert!(!first.contains("  ") && !first.contains(" ;") && !first.contains(";;"));
+            assert!(!first.ends_with(';') && !first.contains('✓'), "{first}");
+        }
+    }
 
     #[test]
     fn psd_normalization_only_removes_empty_name_resources() {

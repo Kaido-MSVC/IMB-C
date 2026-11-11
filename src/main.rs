@@ -555,7 +555,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     engine::display_path(&path),
                     hash,
                     if verified {
-                        "SHA-256 ✓ JPEG"
+                        "SHA-256 matches original JPEG"
                     } else {
                         "SHA-256: 原 JPEG 未提供 / No reference JPEG"
                     },
