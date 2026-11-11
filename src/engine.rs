@@ -20,6 +20,27 @@ fn err(e: impl std::fmt::Display) -> String {
     plain_error_text(e.to_string())
 }
 
+/// The one way a path becomes user-facing text (GUI log, warning report, dialogs, errors).
+/// Drops the Win32 verbatim prefix (`\\?\D:\…` → `D:\…`, `\\?\UNC\server\share` →
+/// `\\server\share`) without quotes or escaping. File operations keep the original path.
+pub fn display_path(path: impl AsRef<Path>) -> String {
+    plain_path_text(&path.as_ref().to_string_lossy())
+}
+
+fn plain_path_text(text: &str) -> String {
+    if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
+        return format!(r"\\{rest}");
+    }
+    if let Some(rest) = text.strip_prefix(r"\\?\") {
+        // Only drive paths; \\?\Volume{…} and \\?\GLOBALROOT have no shorter equivalent.
+        let bytes = rest.as_bytes();
+        if bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' {
+            return rest.to_owned();
+        }
+    }
+    text.to_owned()
+}
+
 /// tempfile 3.27 reports `<os error> at path "<Debug path>"`, which doubles every
 /// backslash and adds quotes. Rewrite that suffix as a plain, copyable Windows path.
 pub fn plain_error_text(message: String) -> String {
@@ -40,7 +61,7 @@ pub fn plain_error_text(message: String) -> String {
             _ => path.push(c),
         }
     }
-    format!("{cause}；位置 {path}")
+    format!("{cause}；位置 {}", plain_path_text(&path))
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -184,11 +205,11 @@ impl Job {
                 result = Err(format!(
                     "{}；工作目錄保留於 {}",
                     result.err().unwrap_or_default(),
-                    path.display()
+                    display_path(&path)
                 ));
             } else {
                 let path = dir.path().to_owned();
-                result = cleanup_result(result, dir.close().map_err(|e| format!("工作暫存清理失敗 {}：{e}；可能累積磁碟用量，請在所有工作停止後檢查此目錄", path.display())));
+                result = cleanup_result(result, dir.close().map_err(|e| format!("工作暫存清理失敗 {}：{e}；可能累積磁碟用量，請在所有工作停止後檢查此目錄", display_path(&path))));
             }
         }
         result
@@ -430,14 +451,14 @@ fn run_with_timeout(
         return Err(format!(
             "{}；無法確認子程序停止，暫存保留於 {}",
             result.unwrap_err(),
-            retained.display()
+            display_path(&retained)
         ));
     }
     cleanup_result(
         result,
         scratch
             .close()
-            .map_err(|e| format!("引擎暫存清理失敗 {}：{e}", scratch_path.display())),
+            .map_err(|e| format!("引擎暫存清理失敗 {}：{e}", display_path(&scratch_path))),
     )
 }
 
@@ -496,7 +517,7 @@ fn run_child(
     }
     let mut child = command
         .spawn()
-        .map_err(|e| format!("無法啟動 {}：{e}", engine.display()))?;
+        .map_err(|e| format!("無法啟動 {}：{e}", display_path(&engine)))?;
     *stopped = false;
     let started = Instant::now();
     loop {
@@ -1058,7 +1079,7 @@ pub fn convert_with_options(
     verification.warnings.extend(
         warnings
             .into_iter()
-            .map(|w| format!("輸出已保存 {}；{w}", path.display())),
+            .map(|w| format!("輸出已保存 {}；{w}", display_path(&path))),
     );
     Ok((path, verification))
 }
@@ -1568,7 +1589,7 @@ pub fn jpeg_reconstruction_with_warnings(
     )?;
     let warnings = warnings
         .into_iter()
-        .map(|w| format!("輸出已保存 {}；{w}", path.display()))
+        .map(|w| format!("輸出已保存 {}；{w}", display_path(&path)))
         .collect();
     Ok((path, hash, verified, warnings))
 }

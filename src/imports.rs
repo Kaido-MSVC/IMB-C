@@ -12,7 +12,7 @@ pub fn folder(root: &Path, recursive: bool) -> Result<(Vec<PathBuf>, Vec<String>
         let entries = match fs::read_dir(&dir) {
             Ok(entries) => entries,
             Err(e) if dir != root => {
-                warnings.push(format!("{}: {e}", dir.display()));
+                warnings.push(format!("{}: {e}", crate::engine::display_path(&dir)));
                 continue;
             }
             Err(e) => return Err(e.to_string()),
@@ -40,7 +40,7 @@ pub fn folder(root: &Path, recursive: bool) -> Result<(Vec<PathBuf>, Vec<String>
                 Ok(())
             })();
             if let Err(e) = result {
-                warnings.push(format!("{}: {e}", dir.display()));
+                warnings.push(format!("{}: {e}", crate::engine::display_path(&dir)));
             }
         }
     }

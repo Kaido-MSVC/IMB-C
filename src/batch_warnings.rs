@@ -41,7 +41,7 @@ impl Journal {
             if self.summary.error.is_none() {
                 let detail = format!(
                     "警告報告無法完整保存：{e}；來源 {}；本次警告：{}",
-                    input.display(),
+                    crate::engine::display_path(&input),
                     warnings.join("；")
                 );
                 self.summary.error = Some(detail.chars().take(8192).collect());
@@ -71,7 +71,7 @@ impl Journal {
             )?;
         }
         let f = self.file.as_mut().unwrap();
-        writeln!(f, "[{}] Source: {}", self.summary.files, input.display())?;
+        writeln!(f, "[{}] Source: {}", self.summary.files, crate::engine::display_path(&input))?;
         for warning in warnings {
             writeln!(f, "Warning: {warning}")?;
         }
@@ -217,6 +217,36 @@ mod tests {
         assert!(!detail.contains('"'), "{detail}");
         let missing = dir.path().join("missing").display().to_string();
         assert!(detail.contains(&format!("位置 {missing}\\IMB-C-warnings-")), "{detail}");
+    }
+    #[test]
+    fn n1_display_path_strips_verbatim_prefixes_only_for_display() {
+        use crate::engine::display_path;
+        let cases = [
+            (r"D:\don\out\a.webp", r"D:\don\out\a.webp"),
+            (r"D:\圖片\色彩 測試\a (2).webp", r"D:\圖片\色彩 測試\a (2).webp"),
+            (r"\\?\D:\don\xxx (2).webp", r"D:\don\xxx (2).webp"),
+            (r"\\?\UNC\server\共用 資料\a.png", r"\\server\共用 資料\a.png"),
+            (r"\\server\share\a.png", r"\\server\share\a.png"),
+            (r"\\?\Volume{0000}\a.png", r"\\?\Volume{0000}\a.png"),
+        ];
+        for (raw, shown) in cases {
+            assert_eq!(display_path(Path::new(raw)), shown);
+        }
+        // Report lines use the same helper.
+        let dir = tempfile::tempdir().unwrap();
+        let mut j = Journal::new(dir.path());
+        j.record(Path::new(r"\\?\UNC\server\share\b.avif"), &["w".into()])
+            .unwrap();
+        let text = std::fs::read_to_string(j.finish(1, 0, 0).path.unwrap()).unwrap();
+        assert!(text.contains("[1] Source: \\\\server\\share\\b.avif\n"), "{text}");
+        // tempfile errors on verbatim paths are shown the same way.
+        assert_eq!(
+            crate::engine::plain_error_text(format!(
+                "x (os error 5) at path {:?}",
+                Path::new(r"\\?\D:\don\.tmp1")
+            )),
+            r"x (os error 5)；位置 D:\don\.tmp1"
+        );
     }
     #[test]
     fn n1_engine_io_errors_show_plain_paths() {

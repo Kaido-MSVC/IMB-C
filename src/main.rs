@@ -280,7 +280,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             rfd::MessageDialog::new()
                 .set_title("IMB-C")
                 .set_level(rfd::MessageLevel::Error)
-                .set_description(format!("{heading}\n{}\n{e}", path.display()))
+                .set_description(format!("{heading}\n{}\n{e}", engine::display_path(&path)))
                 .show();
         }
     });
@@ -317,7 +317,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     app.set_format_index(prefs.format);
     app.set_source_folder(prefs.source_folder.to_string_lossy().into_owned().into());
     if prefs.output_folder.is_dir() {
-        app.set_output_path(prefs.output_folder.to_string_lossy().into_owned().into());
+        app.set_output_path(engine::display_path(&prefs.output_folder).into());
     }
     app.set_avif_quality(prefs.avif_quality);
     app.set_webp_lossless(prefs.webp_lossless);
@@ -400,7 +400,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 s.files
                     .iter()
                     .take(200)
-                    .map(|p| p.display().to_string())
+                    .map(|p| engine::display_path(&p))
                     .collect::<Vec<_>>()
                     .join("\n")
                     .into(),
@@ -415,7 +415,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         {
             let a = weak.unwrap();
             let mut s = s.borrow_mut();
-            a.set_output_path(folder.display().to_string().into());
+            a.set_output_path(engine::display_path(&folder).into());
             s.output = Some(folder);
             a.invoke_preferences_changed();
             a.set_ready(!s.files.is_empty());
@@ -438,7 +438,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         .files
                         .iter()
                         .take(200)
-                        .map(|p| p.display().to_string())
+                        .map(|p| engine::display_path(&p))
                         .chain(warnings)
                     {
                         log = append_log(&log, &line);
@@ -552,7 +552,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let text = match result {
                 Ok((path, hash, verified, warnings)) => format!(
                     "{}\nSHA-256: {}\n{}{}",
-                    path.display(),
+                    engine::display_path(&path),
                     hash,
                     if verified {
                         "SHA-256 ✓ JPEG"
@@ -678,7 +678,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 pool.install(|| {
                     files.par_iter().for_each(|input| {
                         if !c.load(Ordering::Relaxed) {
-                            let line = format!("{}: {}", i18n::text(lang, 16), input.display());
+                            let line = format!("{}: {}", i18n::text(lang, 16), engine::display_path(&input));
                             let _ = weak.upgrade_in_event_loop(move |a| {
                                 a.set_log(append_log(&a.get_log(), &line).into());
                             });
@@ -699,8 +699,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 format!(
                                     "{}: {} → {}\n  {}",
                                     i18n::text(lang, 22),
-                                    input.display(),
-                                    p.display(),
+                                    engine::display_path(&input),
+                                    engine::display_path(&p),
                                     verification
                                 )
                             }
@@ -714,7 +714,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 format!(
                                     "{}: {} — {}",
                                     i18n::text(lang, 21),
-                                    input.display(),
+                                    engine::display_path(&input),
                                     engine::localize_color_error(lang, &e)
                                 )
                             }
@@ -760,7 +760,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 a.set_warning_report(
                     warning_summary
                         .path
-                        .map(|p| p.display().to_string())
+                        .map(|p| engine::display_path(&p))
                         .unwrap_or_default()
                         .into(),
                 );
@@ -843,7 +843,7 @@ fn apply_preferences(app: &AppWindow, about: &AboutWindow, help: &HelpWindow) {
             i18n::text(lang, 51),
             i18n::text(lang, 46),
             i18n::text(lang, 52),
-            engine::locate_engine().display(),
+            engine::display_path(&engine::locate_engine()),
             i18n::text(lang, 33),
         )
         .into(),
