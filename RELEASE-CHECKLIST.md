@@ -47,7 +47,7 @@
   ```
 
 - [ ] 以 `scripts\build-release.ps1` 建置（含 `--remap-path-prefix`，不要改用一般 `cargo build --release` 的 exe 打包）。
-- [ ] `build-release.ps1` 寫死了 MSVC 工具組路徑。VS 更新後舊版本目錄會消失（2026-11-11 時 `14.51.36231` 已不存在，只剩 `14.52.37025`／`14.53.36930`），建置失敗時先更新腳本內的路徑再建置。
+- [ ] `build-release.ps1` 以 vswhere 找到 VS、透過 `VsDevCmd.bat -arch=amd64 -host_arch=amd64` 載入環境，開頭會印出實際使用的 MSVC 工具組版本與 link.exe 路徑。把印出的版本記在建置紀錄裡。
 - [ ] `cargo build --release --locked` 沒有警告。
 
 ## 6. 測試
