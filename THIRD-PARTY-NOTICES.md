@@ -1,5 +1,7 @@
 # 第三方告知
 
+IMB-C 1.3.3（2026-11-13）：隨附 runtime 為 ImageMagick 7.1.2-35、libheif 1.23.7、libjxl／cjxl／djxl 0.13.0、Brotli 1.2.1；下方舊版敘述保留為歷史紀錄。元件授權不變，來源、修改、建置及相應材料見 `THIRD-PARTY-RUNTIME.txt`、`RUNTIME-MANIFEST-v1.3.json` 與隨包 `licenses/security-20261113/`、`licenses/avif/`、`licenses/jxl-tools/`。Low IL 僅使用 Windows 系統 API，未增加第三方依賴或修改授權條文。
+
 IMB-C 自有原始碼採 MIT；以下第三方元件仍依各自授權。歷史段落保留其當時版本與驗收脈絡，不限制 MIT 原始碼的公開散布。FreeType 2.14.3 選 FTL；署名見 FREETYPE-NOTICE.md，完整條款見隨包 `licenses/native/freetype/docs/FTL.TXT`。
 
 ## v1.2 新增元件

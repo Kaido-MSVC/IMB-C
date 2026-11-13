@@ -1,5 +1,20 @@
 # IMB-C 發布檢查清單
 
+## v1.3.3 發布紀錄（2026-11-13）
+
+完整的候選驗收過程（RC1～RC3）與原始日誌屬本機內部紀錄，不在版控中。以下為公開摘要。
+
+- [x] 自動驗收（release profile）：全入口 76／90／77／76、引擎／安全完整套件 125／0、acceptance-v13 14 PASS、16 MP AVIF／JXL／WebP 三項；`cargo audit` 0 個漏洞（8 個警告不影響 exe 實際連結的 crate）；Clippy 無新增警告；Release 建置 0 警告。100 MP 三項沿用先前結果（原生 DLL 只重建 `__FILE__` 路徑對應）。
+- [x] 私有 ImageMagick 組態隔離：在已安裝系統版 ImageMagick 的電腦上實測，只讀取隨附目錄（陽性對照有效）。
+- [x] T-2 High IL：發行者以提升權限實測通過（父程序 High IL、解析子程序 Low IL、Administrators deny-only）。
+- [x] 人工驗收（發行者確認）：Portable GUI 11 項、乾淨 VM 首次執行、MSI 1.3.2 → 1.3.3 升級、已安裝新版時阻擋 1.3.2 降級、解除安裝。
+- [x] 本版修正：UNC 暫存根目錄改用本機 NTFS 受控暫存；以系統管理員身分執行時，受限 Token 的預設擁有者與 DACL 改為使用者本人；原生 DLL 以 MSVC `/pathmap` 重建，不內嵌本機建置路徑。
+- [x] 封裝：Portable／MSI／Source 從建置前凍結的工作樹快照產生，commit 後以快照逐檔核對（忽略換行符）；封包不含內部交接文件與測試素材；路徑／機密掃描無阻擋項。MSI ProductCode `{823B3A63-FB39-4175-8094-F8010EDDFE34}`，UpgradeCode 沿用。
+- [x] 殘餘風險與已知限制已揭露於 RELEASE-NOTES-1.3.3.md：P1-A 沒有磁碟硬配額、M-2 Low IL 工作互不隔離、NAS／斷線未完整驗證、AVIF 16-bit 輸出 12-bit、200／400 MP 未驗證、8-bit PSD 轉 PNG／TIFF／JXL 輸出 16-bit（自 1.3.0 起的設計）。
+- [x] 第 11 節發布步驟依本清單執行。
+
+---
+
 依 v1.3.1 的發布準備流程（本機 `RELEASE-PREP-1.3.1.md`）整理。每次發布照順序執行；未執行或不適用的項目要寫明原因。以下 `X.Y.Z` 指本次版號，`P.Q.R` 指上一個已發布版本。
 
 **Tag、Push、上傳 Release 一律在第 1～9 節全部完成並經確認後才做。**

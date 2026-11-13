@@ -1,0 +1,62 @@
+{
+  "date": "2026-11-13",
+  "reason": "CVE-2026-111497 / GHSA-9v8h-qqgm-4m35 (Brotli decoder OOB write, 1.0.3-1.2.0) and libjxl 0.13.0 decoder security fixes",
+  "imagemagick": "7.1.2-34 Q16-HDRI unchanged; only delegate DLLs replaced",
+  "components": {
+    "ImageMagick/CORE_RL_brotli_.dll": {
+      "upstream": "https://github.com/google/brotli",
+      "tag": "v1.2.1",
+      "commit": "db24a98aed38a16de78cc05ca15cdd8dc2a0d92d",
+      "security_fix_commit_ancestor": "b418fa81c48262a86a95332b0bc6d62c30aa78b6",
+      "license": "MIT (licenses/v12-native/brotli-LICENSE, identical text)",
+      "api_version": "0x1002001",
+      "sha256": "502603493562f32aaf777a358b0b13ca567531f33dbc071a7d0a3f4d10311121"
+    },
+    "ImageMagick/CORE_RL_jpeg-xl_.dll": {
+      "upstream": "https://github.com/libjxl/libjxl",
+      "tag": "v0.13.0",
+      "commit": "5a7da83447212fe4900fc29ce97430b881caa67e",
+      "bundled": {
+        "highway": "457c891775a7397bdb0376bb1031e6e027af1c48"
+      },
+      "links": [
+        "CORE_RL_brotli_.dll (above)",
+        "CORE_RL_lcms_.dll (unchanged lcms 2.19.1)"
+      ],
+      "license": "BSD-3-Clause + PATENTS (licenses/jxl-tools); Highway Apache-2.0",
+      "api_version": 13000,
+      "exports": "same 115 names as the replaced 0.12.0 DLL",
+      "sha256": "bc8845288150afc48e9e4fce242f1ca1858e77529ea7da0981b3f31f3632908c"
+    },
+    "JXL/cjxl.exe, JXL/djxl.exe": {
+      "upstream": "official libjxl v0.13.0 jxl-x64-windows-static.zip (unmodified)",
+      "provenance": "licenses/jxl-tools/PROVENANCE.json",
+      "sha256": {
+        "cjxl.exe": "20b49ec4a017e0ad02f44606aed488dc5f98a996ff3cbbd23ab8032fae748d97",
+        "djxl.exe": "81795e834bad0c17db5d707fde1f72520834b36788ea46b54269f3469bc85a5c"
+      }
+    }
+  },
+  "build": {
+    "script": "scripts/build-jxl-brotli-native.py",
+    "script_sha256": "dd790159374f7086e3212cd186e78252864de540ec355bafc79f0904bafb4200",
+    "toolchain": "MSVC 14.52.37025 /MD Release, CMake + Ninja, Windows SDK from VsDevCmd",
+    "cmake_cache": {
+      "CMAKE_CXX_COMPILER:STRING": "C:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/MSVC/14.52.37025/bin/Hostx64/x64/cl.exe",
+      "CMAKE_CXX_FLAGS_RELEASE:STRING": "/O2 /Ob2 /DNDEBUG",
+      "CMAKE_C_FLAGS_RELEASE:STRING": "/O2 /Ob2 /DNDEBUG",
+      "CMAKE_MSVC_RUNTIME_LIBRARY:UNINITIALIZED": "MultiThreadedDLL",
+      "JPEGXL_ENABLE_BOXES:BOOL": "ON",
+      "JPEGXL_ENABLE_SKCMS:BOOL": "OFF",
+      "JPEGXL_ENABLE_TRANSCODE_JPEG:BOOL": "ON",
+      "JPEGXL_FORCE_SYSTEM_LCMS2:BOOL": "ON"
+    },
+    "note": "Not bit-for-bit reproducible (timestamps). Source is unmodified upstream tags. 2026-11-13 RC: rebuilt with MSVC /experimental:deterministic /pathmap so that no local build paths are embedded."
+  },
+  "replaced_0_12_0_sha256": {
+    "CORE_RL_brotli_.dll": "492ad42d73bde100ea2b7cb98aba52f276a7f6f03e73c81d257909cad3e5b833",
+    "CORE_RL_jpeg-xl_.dll": "61966461b549b0540dbc44f86da9c0f3665ee88a0fcfde678344f250e3607d77",
+    "cjxl.exe": "e2262d72f4c1028fd3fbe420d85e6e35210df06956a5521b692a92c4f0e0d8da",
+    "djxl.exe": "6970ce73de51e046b39bd5f28fc7bc5da64e9f6505c11194319f43d8849d2bf4"
+  }
+}

@@ -5,6 +5,27 @@ use std::{
     path::{Path, PathBuf},
 };
 pub const PAGE_BYTES: usize = 32 * 1024;
+const REPORT_LIMIT: u64 = 64 * 1024 * 1024;
+const FOOTER_RESERVE: u64 = 512;
+
+struct ReportFile {
+    file: File,
+    written: u64,
+    limit: u64,
+}
+impl Write for ReportFile {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        if bytes.len() as u64 > self.limit.saturating_sub(self.written) {
+            return Err(io::Error::other("警告報告達到大小上限，已停止後續工作"));
+        }
+        let n = self.file.write(bytes)?;
+        self.written += n as u64;
+        Ok(n)
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        self.file.flush()
+    }
+}
 pub fn clean_successes(total: usize, failed: usize, cancelled: usize, warned: usize) -> usize {
     total.saturating_sub(failed.saturating_add(cancelled).saturating_add(warned))
 }
@@ -17,8 +38,9 @@ pub struct Summary {
 }
 pub struct Journal {
     root: PathBuf,
-    file: Option<File>,
+    file: Option<ReportFile>,
     summary: Summary,
+    limit: u64,
 }
 impl Journal {
     pub fn new(root: &Path) -> Self {
@@ -26,6 +48,7 @@ impl Journal {
             root: root.into(),
             file: None,
             summary: Summary::default(),
+            limit: REPORT_LIMIT,
         }
     }
     pub fn record(&mut self, input: &Path, warnings: &[String]) -> io::Result<()> {
@@ -63,7 +86,11 @@ impl Journal {
                     io::Error::new(e.kind(), crate::engine::plain_error_text(e.to_string()))
                 })?;
             let (file, path) = temp.keep().map_err(|e| e.error)?;
-            self.file = Some(file);
+            self.file = Some(ReportFile {
+                file,
+                written: 0,
+                limit: self.limit.saturating_sub(FOOTER_RESERVE),
+            });
             self.summary.path = Some(path);
             writeln!(
                 self.file.as_mut().unwrap(),
@@ -71,7 +98,12 @@ impl Journal {
             )?;
         }
         let f = self.file.as_mut().unwrap();
-        writeln!(f, "[{}] Source: {}", self.summary.files, crate::engine::display_path(&input))?;
+        writeln!(
+            f,
+            "[{}] Source: {}",
+            self.summary.files,
+            crate::engine::display_path(&input)
+        )?;
         for warning in warnings {
             writeln!(f, "Warning: {warning}")?;
         }
@@ -80,7 +112,8 @@ impl Journal {
     }
     pub fn finish(&mut self, completed: usize, failed: usize, cancelled: usize) -> Summary {
         if let Some(file) = &mut self.file {
-            let result=writeln!(file,"Completed: {completed}; with warnings: {}; warning messages: {}; failed: {failed}; cancelled: {cancelled}",self.summary.files,self.summary.messages).and_then(|_|file.sync_all());
+            file.limit = self.limit;
+            let result=writeln!(file,"\nCompleted: {completed}; with warnings: {}; warning messages: {}; failed: {failed}; cancelled: {cancelled}; report incomplete: {}",self.summary.files,self.summary.messages,self.summary.error.is_some()).and_then(|_|file.file.sync_all());
             if let Err(e) = result {
                 self.summary
                     .error
@@ -129,6 +162,28 @@ pub fn read_page(path: &Path, index: u64) -> io::Result<Page> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn security_report_limit_stops_mid_record_and_preserves_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut j = Journal::new(dir.path());
+        j.limit = 1024;
+        j.record(Path::new("first.png"), &["first warning".into()])
+            .unwrap();
+        assert!(
+            j.record(Path::new("second.png"), &["x".repeat(600)])
+                .is_err()
+        );
+        assert!(
+            j.record(Path::new("third.png"), &["never written".into()])
+                .is_err()
+        );
+        let s = j.finish(2, 0, 0);
+        assert!(s.error.is_some());
+        let text = std::fs::read_to_string(s.path.unwrap()).unwrap();
+        assert!(text.len() <= 1024);
+        assert!(text.contains("first warning") && text.contains("report incomplete: true"));
+        assert!(!text.contains("third.png"));
+    }
     #[test]
     fn r3_warning_journal_keeps_every_record_without_memory_growth() {
         let dir = tempfile::tempdir().unwrap();
@@ -213,19 +268,31 @@ mod tests {
         let mut failed = Journal::new(&dir.path().join("missing"));
         assert!(failed.record(Path::new(sources[1]), &["w".into()]).is_err());
         let detail = failed.finish(1, 0, 0).error.unwrap();
-        assert!(detail.contains(&format!("來源 {}；", sources[1])), "{detail}");
+        assert!(
+            detail.contains(&format!("來源 {}；", sources[1])),
+            "{detail}"
+        );
         assert!(!detail.contains('"'), "{detail}");
         let missing = dir.path().join("missing").display().to_string();
-        assert!(detail.contains(&format!("位置 {missing}\\IMB-C-warnings-")), "{detail}");
+        assert!(
+            detail.contains(&format!("位置 {missing}\\IMB-C-warnings-")),
+            "{detail}"
+        );
     }
     #[test]
     fn n1_display_path_strips_verbatim_prefixes_only_for_display() {
         use crate::engine::display_path;
         let cases = [
             (r"D:\out\out\a.webp", r"D:\out\out\a.webp"),
-            (r"D:\圖片\色彩 測試\a (2).webp", r"D:\圖片\色彩 測試\a (2).webp"),
+            (
+                r"D:\圖片\色彩 測試\a (2).webp",
+                r"D:\圖片\色彩 測試\a (2).webp",
+            ),
             (r"\\?\D:\out\xxx (2).webp", r"D:\out\xxx (2).webp"),
-            (r"\\?\UNC\server\共用 資料\a.png", r"\\server\共用 資料\a.png"),
+            (
+                r"\\?\UNC\server\共用 資料\a.png",
+                r"\\server\共用 資料\a.png",
+            ),
             (r"\\server\share\a.png", r"\\server\share\a.png"),
             (r"\\?\Volume{0000}\a.png", r"\\?\Volume{0000}\a.png"),
         ];
@@ -238,7 +305,10 @@ mod tests {
         j.record(Path::new(r"\\?\UNC\server\share\b.avif"), &["w".into()])
             .unwrap();
         let text = std::fs::read_to_string(j.finish(1, 0, 0).path.unwrap()).unwrap();
-        assert!(text.contains("[1] Source: \\\\server\\share\\b.avif\n"), "{text}");
+        assert!(
+            text.contains("[1] Source: \\\\server\\share\\b.avif\n"),
+            "{text}"
+        );
         // tempfile errors on verbatim paths are shown the same way.
         assert_eq!(
             crate::engine::plain_error_text(format!(

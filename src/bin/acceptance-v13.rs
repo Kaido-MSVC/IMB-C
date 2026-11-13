@@ -60,4 +60,6 @@ fn main() {
             before.len()
         );
     }
+    // 所有工作已結束；沒有保留中的暫存時移除本執行個體的擁有權日誌。
+    engine::shutdown_instance();
 }

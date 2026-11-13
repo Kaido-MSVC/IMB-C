@@ -1,5 +1,14 @@
 # v1.1 私有引擎重建／替換
 
+## 2026-11-13 ImageMagick 7.1.2-35（IMB-C 1.3.3）
+
+IMB-C 1.3.3 隨附的 ImageMagick 為 7.1.2-35：以 `scripts/build-imagemagick-7.1.2-35.py` 從官方 Windows 原始碼重建 MagickCore、MagickWand、magick.exe 與 10 個白名單 coder，並重新套用下方的 AVIF（heic coder 只註冊 AVIF、codec 執行緒 1）與 PSD 修改及私有組態隔離補丁。libheif 1.23.7、libaom 3.15.2 不變。來源與雜湊見 `third-party/materials/security-20261113/ImageMagick-7.1.2-35-PROVENANCE.json`。編譯使用 MSVC `/experimental:deterministic /pathmap`，不內嵌本機建置路徑；libjxl／Brotli（`scripts/build-jxl-brotli-native.py`）亦同。下方 7.1.2-34 敘述為歷史紀錄。
+
+## 2026-11-12 安全修補（1.3.3 前置）
+
+當時開發 runtime 已使用 libheif 1.23.7、libaom 3.15.2 與同版重建的 ImageMagick 7.1.2-34（隔天升級為 7.1.2-35，見上節）。來源、雜湊、私有組態隔離補丁及建置紀錄見 `third-party/materials/avif/SOURCES-1.23.7.json`、`third-party/materials/security-20261112/`、`scripts/prepare-security-native.py`、`scripts/build-isolated-magick-core.py`。請勿執行下方歷史 v1.1 流程來覆寫目前 runtime。
+## 歷史 v1.1 固定來源與流程
+
 固定來源：libheif 1.23.6、libaom 3.15.2；原始封存與 SHA-256 見 source/IMB-C-v1.2.0-source.zip 內 third-party/materials/avif、隨包 licenses/avif/SOURCES.json。
 保留 ImageMagick 7.1.2-34 Q16-HDRI x64 動態核心與 PNG/JPEG/WebP 模組；重建 AVIF coder、PSD coder、授權告知 CLI。
 HEIC 模組名稱僅為 ImageMagick 內部 AVIF 模組名稱。此變體只註冊 AVIF；HEIC/HEIF/AVCI 不註冊。libheif 保留 AVIF 所需容器程式碼，不含 HEVC/AVC codec 實作。

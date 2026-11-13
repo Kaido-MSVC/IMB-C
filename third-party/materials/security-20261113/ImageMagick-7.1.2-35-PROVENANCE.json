@@ -1,0 +1,41 @@
+{
+  "component": "ImageMagick 7.1.2-35 Q16-HDRI x64 (MagickCore, MagickWand, magick.exe, 10 coder modules)",
+  "official_archive": "https://github.com/ImageMagick/ImageMagick/releases/download/7.1.2-35/ImageMagick-7.1.2-35-Windows.7z",
+  "official_archive_sha256": "778bc4d5de0a8ae055284e85fd7dfff75dd44ec14c010cdf8dad5ab05f6a89d4",
+  "attestation": {
+    "bundle": "https://github.com/ImageMagick/ImageMagick/releases/download/7.1.2-35/ImageMagick-7.1.2-35.intoto.jsonl",
+    "verified_with": "gh attestation verify --repo ImageMagick/ImageMagick --bundle",
+    "signer_workflow": "https://github.com/ImageMagick/ImageMagick/.github/workflows/release.yml@refs/heads/main",
+    "source_commit": "5d1bcc55f2c83bc2ff802118b7369756610f3ad4",
+    "tag_7.1.2-35_commit": "5d1bcc55f2c83bc2ff802118b7369756610f3ad4"
+  },
+  "configure": "Configure.Release.x64.exe /noWizard /VS2026 /x64 /dynamic /hdri /Q16",
+  "imb_c_changes": [
+    "MagickCore/configure.c, module.c, deprecate.c: magick-core-isolation.patch (configuration/module search limited to the directory of the loaded core DLL; no registry/environment/user directories)",
+    "coders/psd.c: refuse files without a saved composite; single-layer output composite blended over white",
+    "coders/heic.c: register AVIF only; codec threads=1",
+    "utilities/magick.c: runtime third-party license notice",
+    "MagickCore/magick-baseconfig.h: option-derived part identical to official Configure output; delegate section keeps the IMB-C subset",
+  "2026-11-13 RC: recompiled with MSVC /experimental:deterministic /pathmap (build source -> ImageMagick-7.1.2-35, project root -> /build-user); same sources and options otherwise, no local paths embedded"
+  ],
+  "unchanged_dependency_dlls": "All CORE_RL_* third-party DLLs unchanged (libheif 1.23.7, libjxl 0.13.0, Brotli 1.2.1 per earlier rounds)",
+  "build_source_zip": "ImageMagick-7.1.2-35-imb-c-build-source.zip",
+  "build_source_zip_sha256": "d4bd932b5a5486355dd231f0fc13a37bec91cee9f7bd86150e94dea3177ce4ec",
+  "build_script_sha256": "bd37ea40ee0d8ba364f0dba8e95bc084573aac1c12650a9590538a4a24e4a22d",
+  "outputs_sha256": {
+    "CORE_RL_MagickCore_.dll": "e90a06767891c55ce0f6ab91c91e286180a9357da02fa46b1b3ae97dd3d6edb0",
+    "CORE_RL_MagickWand_.dll": "2061a17ec71ee1e3debd7bac275339370568343f550c3747eca0bf3c258e8b31",
+    "magick.exe": "a12dca1f109209efcdbaccd52b2a7200921823ca858e422493a8822e50ab83a5",
+    "IM_MOD_RL_psd_.dll": "446ebff7df849572e1c6093e043511db9f55182a9ffc9714dc1202b10b70a0d4",
+    "IM_MOD_RL_heic_.dll": "4ac96f10c3cd62e600dc651ae8fb4c0d5fc80f12671b5308a85a041a9bb96dd5",
+    "IM_MOD_RL_jpeg_.dll": "3eebece5036e389bdf52716115e2a2fe4abe113e4f38a8519d5d4f0bc8dd4ce7",
+    "IM_MOD_RL_jxl_.dll": "7e5596ef7d4218c222bab813fd6db94fd72bb6953ca1647af46472f861657e17",
+    "IM_MOD_RL_meta_.dll": "2437ec3ab9b291b1023ea62769ebadffaa60ff4be3171fc033ce513969798b88",
+    "IM_MOD_RL_miff_.dll": "0e7fbf040573511a5ce35f5f36e8e5d7ae2cb5c02a4cf271f9f6891a00539f8d",
+    "IM_MOD_RL_png_.dll": "11f3432d068eb22ab2d97e02df2f3b26c37ec0fcc8c31a47e25547783044aac0",
+    "IM_MOD_RL_rgb_.dll": "74b694bb6a69a2e74a124866239e41af84ab4f5488b2b9069f5be99f8bb574f0",
+    "IM_MOD_RL_tiff_.dll": "03917aaf232d5ddd7bae1ef496bcd704db929d474f96d2b646bb0a0ebfa7baf3",
+    "IM_MOD_RL_webp_.dll": "3ed5c98c05c7c62fe171ca26a67c876528f68234dc1ab87819f04f16f65b0918"
+  },
+  "license": "ImageMagick License (unchanged text; licenses/ImageMagick-LICENSE / ImageMagick/License.txt)"
+}

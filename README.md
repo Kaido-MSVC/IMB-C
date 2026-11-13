@@ -1,4 +1,8 @@
-# IMB-C v1.3.2
+# IMB-C v1.3.3
+
+v1.3.3 以安全強化為主，轉檔功能與 1.3.2 相同；變更、殘餘風險與已知限制見 [1.3.3 Release Notes](RELEASE-NOTES-1.3.3.md)。
+
+v1.3.3 安全強化：圖片解析子程序以移除特權的 Low IL Token 執行，並明確停用 Administrators 群組（一般權限與以系統管理員身分執行均已實測）；GUI 保持一般權限。每次只對新建的專屬暫存目錄降低完整性標籤，不修改共用暫存根目錄。輸入控制代碼為唯讀，輸出經管線交回主程序驗證與發布；建立時原子納入 Job，限制整棵程序樹記憶體及最多 8 個作用中程序。Low IL 阻止寫入一般 Medium IL 使用者檔案，但不是讀取／網路沙箱，也不隔離其他原已允許 Low IL 寫入的位置。同一使用者的平行 Low IL 工作**並未彼此完全隔離**（M-2）：遭利用的工作可能修改其他工作的暫存、驗證資料、輸出串流或程序，輸出驗證不能保證抵抗此類跨工作竄改。原生暫存**沒有真正的磁碟硬配額**（P1-A）；跨執行個體預留、寫入監控與空間檢查均不是硬配額。UNC／SMB／NAS **不保證受到本機相同 Low IL 保護**。
 
 Copyright (c) 2026 Kaido-MSVC。IMB-C 應用程式原始碼採 [MIT 授權](LICENSE)。ImageMagick、libjxl、Slint、FreeType、Microsoft VC++ Runtime 等第三方元件各有自己的授權與散布條件，並未改為 MIT；詳見 [第三方授權清單](THIRD-PARTY-LICENSES-v1.3.0.md)。文件中的 `licenses/` 路徑指完整二進位封包，原始碼儲存庫中的原文材料位於 `third-party/materials/`；大型相應來源封存另由完整來源包提供。
 
@@ -18,7 +22,7 @@ The application code is [MIT-licensed](LICENSE). Bundled components have separat
 
 ## 下載
 
-從 [v1.3.2 Release](https://github.com/Kaido-MSVC/IMB-C/releases/tag/v1.3.2) 下載 Portable ZIP、Windows x64 MSI、完整相應來源 ZIP 及 `SHA256SUMS.txt`。GitHub 自動產生的 Source code ZIP 不包含大型第三方相應來源；需要重建或履行 LGPL 散布義務時，請使用另附的完整相應來源包與封包內的來源／替換材料。安裝與升級方式見 [INSTALL.md](INSTALL.md)。1.3.2 的改善見 [1.3.2 Release Notes](RELEASE-NOTES-1.3.2.md)，相對 1.3.0 的修正與行為變更見 [1.3.1 Release Notes](RELEASE-NOTES-1.3.1.md)。
+從 [v1.3.3 Release](https://github.com/Kaido-MSVC/IMB-C/releases/tag/v1.3.3) 下載 Portable ZIP、Windows x64 MSI、完整相應來源 ZIP 及 `SHA256SUMS.txt`。GitHub 自動產生的 Source code ZIP 不包含大型第三方相應來源；需要重建或履行 LGPL 散布義務時，請使用另附的完整相應來源包與封包內的來源／替換材料。安裝與升級方式見 [INSTALL.md](INSTALL.md)。1.3.3 的安全強化、殘餘風險與已知限制見 [1.3.3 Release Notes](RELEASE-NOTES-1.3.3.md)；先前版本見 [1.3.2](RELEASE-NOTES-1.3.2.md) 與 [1.3.1 Release Notes](RELEASE-NOTES-1.3.1.md)。
 
 附件內保留部分歷史 Personal-Use／candidate 名稱、好友交付與當時審查文字；正式發行頁及本 README 取代發行者自行規定的舊交付程序，並不修改第三方授權原文，也不表示第三方元件一律可以任意轉交。未簽章，請先核對 SHA-256。
 
@@ -28,11 +32,11 @@ IMB-C 的 exe 與 MSI 沒有程式碼簽章，所以 Windows 可能顯示「Wind
 
 1. **核對 SHA-256**：在下載資料夾開啟 PowerShell，執行
    ```powershell
-   Get-FileHash .\IMB-C-v1.3.2-x64.msi -Algorithm SHA256
+   Get-FileHash .\IMB-C-v1.3.3-x64.msi -Algorithm SHA256
    ```
-   把輸出的 Hash 與同一個 Release 的 `SHA256SUMS.txt` 對應列比較（大小寫不影響）。也可以用 `certutil -hashfile IMB-C-v1.3.2-x64.msi SHA256`。Portable ZIP 與來源 ZIP 用同樣方式核對。**不相符就不要執行**，請重新從 Release 頁下載。
+   把輸出的 Hash 與同一個 Release 的 `SHA256SUMS.txt` 對應列比較（大小寫不影響）。也可以用 `certutil -hashfile IMB-C-v1.3.3-x64.msi SHA256`。Portable ZIP 與來源 ZIP 用同樣方式核對。**不相符就不要執行**，請重新從 Release 頁下載。
 2. **SmartScreen 放行**：核對相符後，在「Windows 已保護您的電腦」視窗按「其他資訊」，確認檔名後按「仍要執行」。
-3. **Portable 解除封鎖**：解壓前先在 ZIP 上按右鍵 →「內容」→ 勾選「解除封鎖」→「確定」，避免解壓出的每個檔案都被標記成來自網際網路。也可以在 PowerShell 執行 `Unblock-File .\IMB-C-v1.3.2-Portable.zip`。
+3. **Portable 解除封鎖**：解壓前先在 ZIP 上按右鍵 →「內容」→ 勾選「解除封鎖」→「確定」，避免解壓出的每個檔案都被標記成來自網際網路。也可以在 PowerShell 執行 `Unblock-File .\IMB-C-v1.3.3-Portable.zip`。
 
 ## Microsoft Runtime 條款
 
@@ -53,40 +57,54 @@ IMB-C 的 exe 與 MSI 沒有程式碼簽章，所以 Windows 可能顯示「Wind
 
 HDR 驗證範圍：Rec.2100 PQ/HLG 的 16-bit 合成樣本經 ImageMagick/PNG/JXL 往返，像素與各自 4324-byte ICC 一致。這不是所有 CICP/CLLI/EXIF/HDR gain map 或所有檢視器顯示的保證。請先保留來源，不把未驗證的 HDR 容器路徑當完整保留保證。
 
-MSI 更新路徑時序已修正；完整內容使用獨立產品/元件/登錄/捷徑識別，已實測安裝、1.2.1→1.3.0 升級、修復、啟動及卸載。未在現有正式安裝上測試升級。完整卸載後不保留永久 MSI 路徑紀錄；個人偏好設定保留在使用者資料夾。未簽章。
+MSI 更新路徑時序已修正；完整內容使用獨立產品/元件/登錄/捷徑識別，已實測安裝、1.2.1→1.3.0 升級、修復、啟動及解除安裝；1.3.3 另由發行者人工確認 1.3.2→1.3.3 升級、已安裝 1.3.3 時阻擋 1.3.2 降級，以及解除安裝。完整解除安裝後不保留永久 MSI 路徑紀錄；個人偏好設定保留在使用者資料夾。未簽章。
 
 MIT 授權允許公開散布 IMB-C 自有程式碼。隨附二進位與第三方材料的權利須另依各自條款確認；既有 Personal-Use 封包的交付文件屬歷史紀錄，不能用來限制 MIT 程式碼。第三方授權基礎見 THIRD-PARTY-LICENSES-v1.2.0.md，v1.3 增補見 NATIVE-ADDITIONS-v1.3.json 與 THIRD-PARTY-NOTICES.md。
 
 ## 開發與重建
-Rust/cargo 1.99.1（不升級）；edition 2024，依 Cargo.lock 使用原依賴。先從本正式版完整可攜包還原 runtime：`python -X utf8 scripts/prepare-v13-runtime.py <解壓資料夾>`，再執行 `cargo build --locked --release --bin imb-c`。使用既有 MSVC/Windows SDK。不得使用舊 prepare-dev-runtime.py 覆寫 v1.3 policy。
+Rust/cargo 1.100.0；edition 2024，依 Cargo.lock 使用原依賴，Slint 固定 1.18.1。先從相符版本的完整可攜包還原 runtime：`python -X utf8 scripts/prepare-v13-runtime.py <解壓資料夾>`，再執行 `cargo build --locked --release --bin imb-c`。使用既有 MSVC/Windows SDK。不得使用舊 prepare-dev-runtime.py 覆寫 v1.3 policy。runtime 必須取自 1.3.3 完整可攜包；1.3.2 以前的可攜包與 1.3.3 的 `RUNTIME-MANIFEST-v1.3.json` 不同，不能使用。
 必要回歸：`cargo run --locked --bin verify-v13 -- <專案絕對路徑>`；一般測試 `cargo test --locked --bin imb-c`。Windows 原子保存需正常桌面權限。32-bit 測試另設 IMBC_TEST_ENGINE 後執行被忽略的 v13_float_precision。
 
 安全界線：僅有 HDR/廣色域 CICP 而無 ICC 的 AVIF，目前明確拒絕，避免誤標為 sRGB。已驗證的 PQ/HLG ICC 路徑可用。
 
-2026-10-29 最終驗收：8-bit 來源套用目標 ICC 時，PNG/TIFF/JXL/PSD 改用 16-bit，避免輸出量化使無損驗證拒絕。驗證以要求轉換後的基準比較。含 EXIF/XMP/ICC/COM 的 baseline/progressive JPEG 經專用 JXL 工具後 bytes 與 SHA-256 完全一致。新增可重現測試 `cargo run --locked --bin acceptance-v13 -- <專案絕對路徑>`。詳 ACCEPTANCE-v1.3.0.md。
+2026-10-29 最終驗收：8-bit 來源套用目標 ICC 時，PNG/TIFF/JXL/PSD 改用 16-bit，避免輸出量化使無損驗證拒絕。驗證以要求轉換後的基準比較。含 EXIF/XMP/ICC/COM 的 baseline/progressive JPEG 經專用 JXL 工具後 bytes 與 SHA-256 完全一致。新增可重現測試 `cargo run --locked --bin acceptance-v13 -- <專案絕對路徑>`。當時的驗收報告為內部紀錄，未隨公開來源提供。
 
 ## 2026-10-30 最後授權審查
 自有程式碼 MIT 署名為 Kaido-MSVC。FreeType 2.14.3 固定版原文已核對，Microsoft Runtime 發行者個人資格由本人確認，五份 DLL 與正式 Redist 相同。歷史材料核對詳 LICENSE-REVIEW-v1.3.0.md；本次公開發行的告知與使用條款見上方「Microsoft Runtime 條款」，不沿用歷史逐一好友交付流程。
 
 ## 2026-11-10 第二輪 Bug 修正（維持 1.3.0）
 
-依 [Claude 複查](REVIEW-2026-11-10.md) 修復第一輪回歸。第二輪的 metadata-only coder 白名單已由第三輪修正取代，現行 ICC 探測與保護方式見下節；不會以「探測不到」為由略過必要比對。
+依 Claude 複查（內部審查紀錄，未公開）修復第一輪回歸。第二輪的 metadata-only coder 白名單已由第三輪修正取代，現行 ICC 探測與保護方式見下節；不會以「探測不到」為由略過必要比對。
 
 PSD v1 的空白 Alpha 名稱資源（1006／1045）只在私有來源副本略過；遇到不認得的資源簽章、尾端殘餘、最後一筆奇數資料未補齊時，保留原始位元組交給引擎判斷。色彩區／資源區的檔案邊界及已宣告資源資料長度仍受檢查。PSB v2 尚未支援，沒有新增 v1.4 功能。
 
 無 ICC 且無 CICP 的合法 AVIF（包含舊版 1.3.0 輸出）可以繼續轉檔，但會顯示「色彩資訊未驗證」與缺少標記警告。像素樣本相同不代表原始色域、傳輸曲線或顯示外觀相同；不會把解碼器產生的 JXL ICC 當作原始 ICC 已驗證。明確帶有不支援的 HDR／廣色域／錯誤 CICP 仍拒絕，沒有 ICC 的來源也不能套用目標 ICC。
 
-單檔轉檔／驗證仍共用 600 秒總期限。啟動前檢查私有 policy，並核對官方 `-list policy` 的生效規則及應被禁止的 RGB coder。Windows 登錄的系統 policy 仍可能被載入：偵測到額外生效規則時會停止並提示，不更改系統設定。**這是干擾偵測與緩解，尚非完整隔離**；隱藏規則與檢查後設定被更動的風險仍見 [第二輪交接報告](BUGFIX-2026-11-10-R2.md)。
+單檔轉檔／驗證仍共用 600 秒總期限。啟動前檢查私有 policy，並核對官方 `-list policy` 的生效規則及應被禁止的 RGB coder。Windows 登錄的系統 policy 仍可能被載入：偵測到額外生效規則時會停止並提示，不更改系統設定。**這是干擾偵測與緩解，尚非完整隔離**；隱藏規則與檢查後設定被更動的風險記錄於第二輪內部交接報告（未公開）。1.3.3 起隨附的重建核心只從自身目錄讀取組態與模組，不讀登錄、環境變數或使用者目錄；已在安裝了系統版 ImageMagick 的電腦上實測。
 
+### v1.3.3 安全修補（2026-11-12～13）
+
+Claude 審查後的修補已修正讀取執行緒 panic 與程序樹停止確認的順序，並讓共享目錄保留與錯誤訊息一致。引擎子程序採明確環境白名單，原生快取與子程序個人資料區分開存於 D 槽；不改 GUI 偏好設定的儲存位置。
+
+2026-11-13：JPEG XL 委派與 cjxl／djxl 已更新為 libjxl 0.13.0／Brotli 1.2.1，修補 CVE-2026-111497。JPEG → JXL 封裝明確關閉 0.13 新增的 LF smoothing，讓舊版 libjxl 也能逐位元組還原原始 JPEG。新增跨執行個體資源預留、啟動時以擁有權紀錄安全回收崩潰殘留，以及子程序樹累計寫入上限（不是硬配額）。UNC 清理失敗的本機根因已修正。
+
+同日第三輪：隨包 ImageMagick 已由 7.1.2-34 升級為 7.1.2-35（含 Windows 路徑 policy 與 TIFF 解碼修補），從官方原始碼可重現地重建，私有 policy 保留並加嚴 profile 大小與數量限制，組態隔離以實際 DLL 測試確認。
+
+AVIF 16-bit 來源實際會編成 12-bit，再解碼為 16-bit PNG；這不會恢復已丟失的低位元，不是原生 16-bit AVIF。需要完整保留 16-bit 樣本請使用 PNG／TIFF／JXL。
+
+1.3.3 加入受控寫入額度及 Windows 子程序退出防護。stdout／副本每份最多 16 GiB、stderr 每次最多 1 MiB、單工作累計 32 GiB、同一程序作用中工作累計 64 GiB，警告報告最多 64 MiB；超限停止並保留原始檔案。已納管程序樹依格式、像素及編解碼操作設定 committed-memory 硬上限，取代固定 6 GiB；仍受實體記憶體 75% 及當下可用 commit 減 2 GiB 限制，最多兩個轉檔工作。大型有效檔案可能因額度而安全拒絕。
+
+這些額度不等於完整磁碟配額或檔案／網路沙箱。重建同版核心已固定私有組態與模組搜尋路徑；libheif 已整合 1.23.7、libaom 維持 3.15.2。跨執行個體預留、崩潰殘留回收與原子程序納管已於 1.3.3 完成；原生暫存硬配額（P1-A）與不同 Low IL 工作互不隔離（M-2）仍是已揭露的殘餘風險，見 RELEASE-NOTES-1.3.3.md。
 ### 暫存檔與清理
 
-- 預設使用 `%TEMP%\imb-c-work-*` 存放私有中繼、驗證資料與來源相容副本。像素／ICC 驗證現在使用匿名、獨占建立的暫存檔，透過檔案控制代碼與 stdout 傳遞；Windows 會在最後一個控制代碼關閉後刪除，其他程序持有時會延後。
-- 小型目標 ICC 快照仍需要檔名，使用隨機名稱、獨占建立與安全相對檔名。Windows 工作路徑過長時，引擎工作目錄／快取／ICC 快照會改放本機 `%LOCALAPPDATA%\imb-c-cwd-*`，與原工作一起清理；長路徑及 UNC 的匿名資料仍由 Rust 控制代碼讀寫。若沒有可用的短工作路徑會回報錯誤。
+- 讀取程序繼承的 `MAGICK_TEMPORARY_PATH` 作為根目錄；未設定時使用 `D:\ImageMagick-Temp`。根目錄必須已存在、支援 ACL 的 NTFS 且空間足夠；不自動改用 C 槽，不修改 Windows 環境變數。每工作建立獨立 `imb-c-work-*`，每次引擎另有 `imb-c-job-*` 與其受控 `imb-c-cache-*`，MAGICK_TEMPORARY_PATH／TEMP／TMP／TMPDIR 僅指向快取子目錄；子程序個人資料環境指向該次外層工作區。像素／ICC 驗證使用匿名、獨占建立的檔案，Windows 在最後一個控制代碼關閉後刪除。
+- 小型目標 ICC 快照仍需要檔名，使用隨機名稱、獨占建立與安全相對檔名。Windows 工作路徑過長時，在偏好的暫存根目錄建立較短 `imb-c-cwd-*`；若根目錄本身仍過長，明確回報錯誤。長路徑及 UNC 的匿名資料由 Rust 控制代碼讀寫。
+- 暫存根目錄是 UNC 路徑或網路磁碟機時，Low IL 引擎無法存取，因此引擎暫存一律改放本機 NTFS：`MAGICK_TEMPORARY_PATH` 為本機時使用它，否則使用 `D:\ImageMagick-Temp`，並在每個檔案的警告中列出實際使用的路徑。兩者都不可用時拒絕轉換，不改用 C 槽。UNC 圖片輸入與輸出不受影響，仍可使用。UNC 實測涵蓋本機 SMB 迴路，不能推論所有 NAS 或斷線情境均可用。
 - 正常完成、失敗、取消及逾時，均先停止子程序、關閉檔案再清理。**已完成驗證並發布輸出後，只有清理失敗會顯示成功加警告**，警告保留輸出及暫存位置，避免把同一檔誤算為轉檔失敗。
-- 引擎快取上限 8 GiB 不包含所有中繼、驗證及目的地輸出；目前沒有全工作共用磁碟預算或寫入硬上限。接近 400 MP 的工作仍可能需要約 16–25 GB，兩個同時工作約 30–50 GB（程式結構估算，非本輪壓力實測）；大圖請預留足夠空間。
-- 異常退出仍可能留下工作目錄、引擎快取、小型具名 ICC、目的地 `.tmp*`，以及尚未結束的 `magick.exe`／JXL 子程序；匿名檔須等所有持有者結束才刪除。手動清理前先確認相關工作與子程序已停止，只處理警告所指或能確認屬於該次工作且未發布的暫存，不要掃除其他程式的全域 `magick-*`。目前沒有自動崩潰回收。
+- 引擎快取上限 8 GiB 不包含所有中繼、驗證及目的地輸出；1.3.3 新增受控串流／副本的寫入上限，但尚無涵蓋全部引擎檔案的共用磁碟預算。接近 400 MP 的工作仍可能需要約 16–25 GB，兩個同時工作約 30–50 GB（程式結構估算，非本輪壓力實測）；大圖請預留足夠空間。
+- 異常退出仍可能留下工作目錄、引擎快取、小型具名 ICC、目的地 `.tmp*`，1.3.3 起子程序建立時即原子納入 Job Object，IMB-C 結束時一併終止；匿名檔須等所有持有者結束才刪除。下次啟動時會依擁有權紀錄，安全回收本程式先前崩潰留下的暫存。手動清理前先確認相關工作與子程序已停止，只處理警告所指或能確認屬於該次工作且未發布的暫存，不要掃除其他程式的全域 `magick-*`。
 
-完整修改、實測結果與未執行項目見 [第二輪 Bug 修正報告](BUGFIX-2026-11-10-R2.md)。第一輪報告保留為歷史紀錄，不能取代本輪結果。
+完整修改、實測結果與未執行項目記錄於第二輪 Bug 修正報告（內部紀錄，未公開）。
 
 ## 2026-11-10 第三輪回歸修正（維持 1.3.0）
 
@@ -102,7 +120,7 @@ WebP 使用 RGB 色彩模型，預設不接受 Gray 或其他非 RGB ICC。要�
 
 警告報告是供使用者保留的結果紀錄，**不會當暫存檔自動刪除**，請依需要自行清理。若報告建立／寫入失敗，會保留明確錯誤與有限長度的警告摘要，停止後續工作；已完成的輸出仍按成功計數，但介面會顯示報告不完整，不隱藏儲存問題。完整 GUI 批次人工操作本輪未完成；警告計數、日誌捲動、分頁與儲存錯誤已有自動回歸。
 
-本輪測試與剩餘風險見 [第三輪交接報告](BUGFIX-2026-11-10-R3.md)。policy 隱藏規則／競態、共用磁碟預算、寫入硬上限及崩潰回收仍未解決，沒有新增 v1.4 功能。
+本輪測試與剩餘風險記錄於第三輪內部交接報告（未公開）。後續狀態見上方「v1.3.3 安全修補」段落：1.3.3 起隨附核心只讀取自身目錄的組態，崩潰殘留會在下次啟動時回收；原生暫存仍沒有真正的磁碟硬配額（P1-A）。沒有新增 v1.4 功能。
 
 ## 2026-11-10 最後相容性檢查與 GUI 驗收準備
 

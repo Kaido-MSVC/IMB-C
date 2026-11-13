@@ -1,5 +1,26 @@
 #[path = "color_diagnostics.rs"]
 mod color_diagnostics;
+#[path = "controlled_temp.rs"]
+mod controlled_temp;
+#[path = "engine_limits.rs"]
+mod engine_limits;
+#[path = "engine_memory.rs"]
+mod engine_memory;
+#[path = "instance_ledger.rs"]
+mod instance_ledger;
+#[path = "low_integrity.rs"]
+mod low_integrity;
+#[cfg(windows)]
+#[path = "process_guard.rs"]
+mod process_guard;
+#[cfg(test)]
+thread_local! { static TEST_NATIVE_PEAK: std::cell::Cell<u64> = const { std::cell::Cell::new(0) }; }
+#[cfg(test)]
+thread_local! {
+    static TEST_READER_PANIC: std::cell::Cell<u8> = const { std::cell::Cell::new(0) };
+    static TEST_TREE_FAILURE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static TEST_TREE_CONFIRMED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
 #[allow(dead_code)] // GUI localization; standalone verification binaries share this engine.
 pub fn localize_color_error(lang: i32, detail: &str) -> String {
     color_diagnostics::localize(lang, detail)
@@ -144,42 +165,96 @@ pub fn locate_engine() -> PathBuf {
         .unwrap_or_default()
 }
 
+/// 啟動時回收已終止 IMB-C 執行個體的殘留（P1-C）：只處理其擁有權日誌中 File ID 相符、
+/// 未被使用的項目，並終止其建立→納管空窗留下的暫停子程序。沒有需要回報的事項時回傳空集合。
+#[allow(dead_code)] // GUI 使用；驗收工具共用 engine.rs
+pub fn recover_stale_temp() -> Vec<String> {
+    let report = match instance_ledger::global().and_then(|l| l.recover()) {
+        Ok(report) => report,
+        Err(e) => {
+            return vec![format!(
+                "殘留暫存回收未執行：{}",
+                plain_error_text(e.to_string())
+            )];
+        }
+    };
+    let mut lines = Vec::new();
+    if report.removed > 0 || report.orphans > 0 {
+        lines.push(format!(
+            "已回收先前異常結束留下的暫存 {} 項、暫停子程序 {} 個",
+            report.removed, report.orphans
+        ));
+    }
+    for kept in report.kept {
+        lines.push(format!(
+            "先前的暫存仍在使用或無法刪除，已保留並於下次啟動重試：{}",
+            plain_error_text(kept)
+        ));
+    }
+    lines
+}
+#[allow(dead_code)] // GUI 使用；驗收工具共用 engine.rs
+pub fn shutdown_instance() {
+    instance_ledger::shutdown();
+}
+
 // One context per worker thread; scoped to a single conversion, including verification.
 thread_local! {
     static JOB: std::cell::RefCell<Option<(PathBuf, Instant, bool)>> = const { std::cell::RefCell::new(None) };
+    static JOB_BUDGET: std::cell::RefCell<Option<std::sync::Arc<engine_limits::Budget>>> = const { std::cell::RefCell::new(None) };
+    static JOB_IMAGE: std::cell::Cell<(u64, u64, u64)> = const { std::cell::Cell::new((0, 16, 4)) };
+    static JOB_STORAGE: std::cell::RefCell<Option<std::sync::Arc<controlled_temp::ControlledDir>>> = const { std::cell::RefCell::new(None) };
     static JOB_CWD: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
+    // 跨執行個體磁碟預留：工作結束（Job drop）時釋放。
+    static JOB_RESERVATIONS: std::cell::RefCell<Vec<instance_ledger::Reservation>> = const { std::cell::RefCell::new(Vec::new()) };
     static WARNINGS: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
 }
-struct Job(Option<tempfile::TempDir>, Option<tempfile::TempDir>);
+struct Job(
+    Option<std::sync::Arc<controlled_temp::ControlledDir>>,
+    Option<std::sync::Arc<controlled_temp::ControlledDir>>,
+);
 impl Job {
     fn new() -> Result<Self> {
-        Self::new_in(&std::env::temp_dir())
+        Self::new_in(&controlled_temp::preferred_root().map_err(err)?)
     }
-    fn new_in(root: &Path) -> Result<Self> {
+    fn new_in(requested: &Path) -> Result<Self> {
         WARNINGS.with(|warnings| warnings.borrow_mut().clear());
-        let dir = tempfile::Builder::new()
-            .rand_bytes(16)
-            .prefix("imb-c-work-")
-            .tempdir_in(root)
-            .map_err(err)?;
-        // CreateProcessW cannot use an arbitrarily long current directory.
-        // File-handle IO may still use the requested long/UNC storage root.
+        JOB_IMAGE.with(|v| v.set((0, 16, 4)));
+        // Low IL 引擎無法存取 UNC／網路磁碟機；暫存改放本機 NTFS 並明確告知實際路徑。
+        // 圖片輸入與輸出仍可在 UNC，由 Rust 控制代碼讀寫。
+        let (root, redirected) = controlled_temp::local_engine_root(requested).map_err(err)?;
+        let root = root.as_path();
+        if let Some(original) = redirected {
+            WARNINGS.with(|w| {
+                w.borrow_mut().push(format!(
+                    "暫存根目錄 {} 是網路路徑，Low IL 引擎無法存取；本次改用本機受控暫存 {}",
+                    display_path(&original),
+                    display_path(root)
+                ))
+            });
+        }
+        let dir = std::sync::Arc::new(
+            controlled_temp::ControlledDir::create(root, "imb-c-work-").map_err(err)?,
+        );
+        // 為原生快取的兩層子目錄與隨機檔名保留 MAX_PATH 餘裕。
+        // 來源／中繼的控制代碼 I/O 仍可使用原本的長路徑或 UNC。
         #[cfg(windows)]
-        let cwd = if dir.path().to_string_lossy().encode_utf16().count() > 180 {
-            let base = PathBuf::from(
-                std::env::var_os("LOCALAPPDATA")
-                    .ok_or("長路徑工作缺少 LOCALAPPDATA，無法建立引擎工作目錄")?,
+        let cwd = if dir.path().to_string_lossy().encode_utf16().count() > 120 {
+            let short = std::sync::Arc::new(
+                controlled_temp::ControlledDir::create(
+                    &controlled_temp::local_engine_root(
+                        &controlled_temp::preferred_root().map_err(err)?,
+                    )
+                    .map_err(err)?
+                    .0,
+                    "imb-c-cwd-",
+                )
+                .map_err(err)?,
             );
-            if !base.is_absolute() {
-                return Err("LOCALAPPDATA 必須為絕對路徑".into());
-            }
-            let short = tempfile::Builder::new()
-                .rand_bytes(16)
-                .prefix("imb-c-cwd-")
-                .tempdir_in(base)
-                .map_err(err)?;
-            if short.path().to_string_lossy().encode_utf16().count() > 180 {
-                return Err("無可用的短引擎工作路徑；請使用較短的 LOCALAPPDATA 路徑".into());
+            if short.path().to_string_lossy().encode_utf16().count() > 120 {
+                return Err(
+                    "無可用的短引擎工作路徑；請設定較短的 MAGICK_TEMPORARY_PATH 路徑".into(),
+                );
             }
             Some(short)
         } else {
@@ -188,6 +263,7 @@ impl Job {
         #[cfg(not(windows))]
         let cwd: Option<tempfile::TempDir> = None;
         JOB_CWD.with(|j| *j.borrow_mut() = Some(cwd.as_ref().unwrap_or(&dir).path().to_owned()));
+        JOB_STORAGE.with(|j| *j.borrow_mut() = Some(cwd.as_ref().unwrap_or(&dir).clone()));
         JOB.with(|j| {
             *j.borrow_mut() = Some((
                 dir.path().to_owned(),
@@ -195,11 +271,28 @@ impl Job {
                 false,
             ))
         });
+        JOB_BUDGET
+            .with(|b| *b.borrow_mut() = Some(std::sync::Arc::new(engine_limits::Budget::new())));
         Ok(Self(Some(dir), cwd))
     }
     fn finish<T>(mut self, mut result: Result<T>) -> Result<T> {
         let retained = JOB.with(|j| j.borrow().as_ref().is_some_and(|v| v.2));
+        JOB_STORAGE.with(|j| *j.borrow_mut() = None);
         for dir in [self.0.take(), self.1.take()].into_iter().flatten() {
+            let dir = match std::sync::Arc::try_unwrap(dir) {
+                Ok(dir) => dir,
+                Err(dir) => {
+                    // 保留狀態屬於目錄本身，最後一個共享參照釋放時仍不得清理。
+                    dir.retain();
+                    let warning = format!("暫存目錄仍被使用，已保留 {}", display_path(dir.path()));
+                    result = if retained {
+                        Err(format!("{}；{warning}", result.err().unwrap_or_default()))
+                    } else {
+                        cleanup_result(result, Err(warning))
+                    };
+                    continue;
+                }
+            };
             if retained {
                 let path = dir.keep();
                 result = Err(format!(
@@ -229,13 +322,17 @@ impl Job {
 }
 impl Drop for Job {
     fn drop(&mut self) {
-        let retained = JOB.with(|j| j.borrow_mut().take().is_some_and(|v| v.2));
-        JOB_CWD.with(|j| *j.borrow_mut() = None);
+        let retained =
+            JOB.with(|j| j.borrow_mut().take().is_some_and(|v| v.2)) || std::thread::panicking();
         if retained {
-            for dir in [self.0.take(), self.1.take()].into_iter().flatten() {
-                let _ = dir.keep();
+            for dir in [&self.0, &self.1].into_iter().flatten() {
+                dir.retain();
             }
         }
+        JOB_STORAGE.with(|j| *j.borrow_mut() = None);
+        JOB_CWD.with(|j| *j.borrow_mut() = None);
+        JOB_BUDGET.with(|b| *b.borrow_mut() = None);
+        JOB_RESERVATIONS.with(|r| r.borrow_mut().clear());
     }
 }
 fn cleanup_result<T>(result: Result<T>, cleanup: Result<()>) -> Result<T> {
@@ -294,8 +391,8 @@ fn validate_engine(engine: &Path) -> Result<()> {
     }
     Ok(())
 }
-// Official CLI policy introspection. Windows registry paths cannot be disabled
-// by MAGICK_CONFIGURE_PATH; reject any additional active policy before image IO.
+// 核心已將組態搜尋固定在隨包 DLL 目錄；仍在讀圖前核對清單與禁用 coder，
+// 避免舊版／錯誤 runtime 或私有 policy 異動被默默接受。
 fn validate_policy_listing(text: &str, private: &Path) -> Result<()> {
     let private = private.canonicalize().map_err(err)?;
     let mut in_private = false;
@@ -389,10 +486,60 @@ fn validate_avif_cicp(text: &str) -> Result<()> {
 }
 
 fn private_engine_path(home: &Path) -> Result<OsString> {
-    let system =
-        PathBuf::from(std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into()))
-            .join("System32");
+    let system = windows_directory()?.join("System32");
     std::env::join_paths([home, system.as_path()]).map_err(err)
+}
+
+fn windows_directory() -> Result<PathBuf> {
+    use std::os::windows::ffi::OsStringExt;
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetWindowsDirectoryW(buffer: *mut u16, size: u32) -> u32;
+    }
+    let mut buffer = [0u16; 32768];
+    let count = unsafe { GetWindowsDirectoryW(buffer.as_mut_ptr(), buffer.len() as u32) } as usize;
+    if count == 0 {
+        return Err(format!(
+            "無法定位 Windows 系統目錄：{}",
+            std::io::Error::last_os_error()
+        ));
+    }
+    if count >= buffer.len() {
+        return Err("Windows 系統目錄長度無效".into());
+    }
+    Ok(PathBuf::from(OsString::from_wide(&buffer[..count])))
+}
+
+fn child_environment(
+    command: &mut Command,
+    home: &Path,
+    scratch: &Path,
+    profile: &Path,
+) -> Result<()> {
+    let windows = windows_directory()?;
+    command
+        .env_clear()
+        .env("SystemRoot", &windows)
+        .env("WINDIR", &windows)
+        .env("COMSPEC", windows.join("System32/cmd.exe"))
+        .env("PATHEXT", ".COM;.EXE;.BAT;.CMD")
+        .env("PATH", private_engine_path(home)?)
+        .env("MAGICK_TEMPORARY_PATH", scratch)
+        .env("TEMP", scratch)
+        .env("TMP", scratch)
+        .env("TMPDIR", scratch)
+        .env("HOME", profile)
+        .env("USERPROFILE", profile)
+        .env("APPDATA", profile)
+        .env("LOCALAPPDATA", profile)
+        .env("XDG_CONFIG_HOME", profile)
+        .env("MAGICK_THREAD_LIMIT", "1")
+        .env("OMP_NUM_THREADS", "1")
+        .env("MAGICK_HOME", home)
+        .env("MAGICK_CONFIGURE_PATH", home)
+        .env("MAGICK_CODER_MODULE_PATH", home.join("modules/coders"))
+        .env("MAGICK_FILTER_MODULE_PATH", home.join("modules/filters"));
+    Ok(())
 }
 
 fn run(
@@ -412,6 +559,24 @@ fn run(
     )
 }
 
+struct Invocation {
+    scratch: Option<controlled_temp::ControlledDir>,
+    stopped: bool,
+}
+impl Drop for Invocation {
+    fn drop(&mut self) {
+        if !self.stopped {
+            JOB.with(|j| {
+                if let Some(job) = j.borrow_mut().as_mut() {
+                    job.2 = true;
+                }
+            });
+            if let Some(dir) = self.scratch.take() {
+                let _ = dir.keep();
+            }
+        }
+    }
+}
 fn run_with_timeout(
     engine: &Path,
     args: &[&str],
@@ -423,12 +588,31 @@ fn run_with_timeout(
     check_job(cancel)?;
     // Only this freshly created random directory is owned by this invocation.
     // Never scan/delete global magick-* files or a directory from a previous run.
-    let scratch = tempfile::Builder::new()
-        .prefix("imb-c-job-")
-        .tempdir_in(job_cwd())
+    let scratch = JOB_STORAGE
+        .with(|j| match j.borrow().as_ref() {
+            Some(parent) => parent.child("imb-c-job-"),
+            None => controlled_temp::ControlledDir::create(
+                &controlled_temp::local_engine_root(&controlled_temp::preferred_root()?)?.0,
+                "imb-c-job-",
+            ),
+        })
         .map_err(err)?;
     let scratch_path = scratch.path().to_path_buf();
-    let mut stopped = true;
+    // 個人資料區可能建立子目錄，與只接受一般檔案的原生快取監測分開。
+    let sandbox =
+        low_integrity::Sandbox::new().map_err(|e| format!("無法建立 Low IL 隔離：{e}"))?;
+    scratch
+        .allow_sandbox(&sandbox)
+        .map_err(|e| format!("無法設定 Low IL 工作目錄：{e}"))?;
+    let native = scratch.child("imb-c-cache-").map_err(err)?;
+    native
+        .allow_sandbox(&sandbox)
+        .map_err(|e| format!("無法設定 Low IL 快取目錄：{e}"))?;
+    controlled_temp::check_free(&scratch_path, 2 * 1024 * 1024 * 1024).map_err(err)?;
+    let mut invocation = Invocation {
+        scratch: Some(scratch),
+        stopped: true,
+    };
     let result = run_child(
         engine,
         args,
@@ -436,10 +620,13 @@ fn run_with_timeout(
         output,
         cancel,
         timeout,
+        native.path(),
         &scratch_path,
-        &mut stopped,
+        &mut invocation.stopped,
+        &sandbox,
     );
-    if !stopped {
+    let scratch = invocation.scratch.take().unwrap();
+    if !invocation.stopped {
         // A failed wait cannot establish that the child has released its files.
         // Preserve this directory and report it instead of racing a live child.
         JOB.with(|j| {
@@ -447,6 +634,7 @@ fn run_with_timeout(
                 job.2 = true;
             }
         });
+        let _ = native.keep();
         let retained = scratch.keep();
         return Err(format!(
             "{}；無法確認子程序停止，暫存保留於 {}",
@@ -454,6 +642,10 @@ fn run_with_timeout(
             display_path(&retained)
         ));
     }
+    let result = cleanup_result(
+        result,
+        native.close().map_err(|e| format!("原生暫存清理失敗：{e}")),
+    );
     cleanup_result(
         result,
         scratch
@@ -471,7 +663,9 @@ fn run_child(
     cancel: &AtomicBool,
     timeout: Duration,
     scratch: &Path,
+    profile: &Path,
     stopped: &mut bool,
+    sandbox: &low_integrity::Sandbox,
 ) -> Result<()> {
     let stderr = job_file()?;
     if engine
@@ -481,6 +675,11 @@ fn run_child(
         validate_engine(engine)?;
     }
     let mut command = Command::new(engine);
+    let home = engine
+        .parent()
+        .filter(|p| p.is_absolute())
+        .ok_or("引擎需要絕對父目錄")?;
+    child_environment(&mut command, home, scratch, profile)?;
     command
         .args(args)
         .env("MAGICK_TEMPORARY_PATH", scratch)
@@ -489,8 +688,8 @@ fn run_child(
         .env("MAGICK_THREAD_LIMIT", "1")
         .env("OMP_NUM_THREADS", "1")
         .stdin(Stdio::from(source.try_clone().map_err(err)?))
-        .stdout(Stdio::from(output.try_clone().map_err(err)?))
-        .stderr(Stdio::from(stderr.try_clone().map_err(err)?));
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     if let Some(home) = engine.parent().filter(|p| p.is_absolute()) {
         // Child-only configuration: never change the user's PATH or installed ImageMagick.
         command
@@ -499,13 +698,13 @@ fn run_child(
                     .with(|j| j.borrow().clone())
                     .unwrap_or_else(|| home.to_owned())
                     .canonicalize()
-                    .map_err(err)?,
+                    .map_err(|e| format!("引擎工作目錄解析失敗：{e}"))?,
             )
             .env("PATH", private_engine_path(home)?)
             .env("MAGICK_HOME", home)
             .env("MAGICK_CONFIGURE_PATH", home)
-            .env("XDG_CONFIG_HOME", scratch)
-            .env("HOME", scratch)
+            .env("XDG_CONFIG_HOME", profile)
+            .env("HOME", profile)
             .env("MAGICK_CODER_MODULE_PATH", home.join("modules/coders"))
             .env("MAGICK_FILTER_MODULE_PATH", home.join("modules/filters"))
             .env_remove("MAGICK_CONFIGURE_BUILD_PATH");
@@ -515,55 +714,245 @@ fn run_child(
         use std::os::windows::process::CommandExt;
         command.creation_flags(0x08000000); // CREATE_NO_WINDOW
     }
-    let mut child = command
-        .spawn()
-        .map_err(|e| format!("無法啟動 {}：{e}", display_path(&engine)))?;
+    let (pixels, depth, channels) = JOB_IMAGE.with(|v| v.get());
+    let memory = engine_memory::Lease::acquire(
+        engine_memory::profile(pixels, depth, channels, args),
+        || check_job(cancel),
+    )?;
+    #[cfg(windows)]
+    let guard = process_guard::ProcessGuard::with_memory_limit(memory.0)
+        .map_err(|e| format!("無法建立子程序資源防護：{e}"))?;
+    // 啟動錯誤先確認整個 Job；只有停止狀態未知才保留 Low 暫存。
     *stopped = false;
-    let started = Instant::now();
-    loop {
-        if check_job(cancel).is_err() || started.elapsed() > timeout {
-            let _ = child.kill();
-            child
-                .wait()
-                .map_err(|e| format!("等待子程序停止失敗：{e}"))?;
-            *stopped = true;
-            return Err(if let Err(reason) = check_job(cancel) {
-                reason
-            } else {
-                format!("超過單次執行 {} 秒限制", timeout.as_secs())
+    #[cfg(windows)]
+    let mut child = match sandbox.spawn(&command, source, guard.handle()) {
+        Ok(child) => child,
+        Err(error) => {
+            let tree = guard.stop_and_wait();
+            *stopped = tree.is_ok();
+            let primary = format!("無法安全啟動 {}：{error}", display_path(engine));
+            return Err(match tree {
+                Ok(()) => primary,
+                Err(e) => format!("{primary}；無法確認啟動失敗程序樹停止：{e}"),
             });
         }
-        match child.try_wait() {
-            Ok(Some(status)) => {
-                *stopped = true;
-                if status.success() {
-                    return Ok(());
-                }
-                let mut stderr = stderr;
-                stderr.seek(SeekFrom::Start(0)).map_err(err)?;
-                let mut detail = Vec::new();
-                stderr.take(4096).read_to_end(&mut detail).map_err(err)?;
-                let detail = String::from_utf8_lossy(&detail);
-                return Err(format!(
-                    "{} 失敗 ({status})：{}",
-                    engine.file_name().unwrap_or_default().to_string_lossy(),
-                    if detail.trim().is_empty() {
-                        "引擎未提供錯誤詳情"
-                    } else {
-                        detail.trim()
+    };
+    #[cfg(not(windows))]
+    let mut child = command.spawn().map_err(err)?;
+    *stopped = false;
+    let stdout = child.stdout.take().ok_or("子程序 stdout 缺漏")?;
+    let error_pipe = child.stderr.take().ok_or("子程序 stderr 缺漏")?;
+    let destination = output.try_clone().map_err(err)?;
+    let error_destination = stderr.try_clone().map_err(err)?;
+    let budget = JOB_BUDGET
+        .with(|b| b.borrow().clone())
+        .unwrap_or_else(|| std::sync::Arc::new(engine_limits::Budget::new()));
+    let failed = AtomicBool::new(false);
+    let piped = std::sync::atomic::AtomicU64::new(0);
+    let output_limit = engine_limits::output_limit();
+    let native_write_limit = engine_limits::native_write_limit();
+    let readers_stopped = AtomicBool::new(false);
+    #[cfg(test)]
+    let panic_readers = TEST_READER_PANIC.with(|v| v.get());
+    let result = std::thread::scope(|scope| {
+        let _stop_on_unwind = engine_limits::StopReaders(&readers_stopped);
+        let out_reader = scope.spawn(|| {
+            #[cfg(test)]
+            engine_limits::TEST_PANIC_NEXT.with(|v| v.set(panic_readers & 1 != 0));
+            engine_limits::pump(
+                engine_limits::PipeReader::new(stdout, &readers_stopped),
+                destination,
+                output_limit,
+                &budget,
+                &failed,
+                &piped,
+            )
+        });
+        let err_reader = scope.spawn(|| {
+            #[cfg(test)]
+            engine_limits::TEST_PANIC_NEXT.with(|v| v.set(panic_readers & 2 != 0));
+            engine_limits::pump(
+                engine_limits::PipeReader::new(error_pipe, &readers_stopped),
+                error_destination,
+                engine_limits::STDERR_LIMIT,
+                &budget,
+                &failed,
+                &piped,
+            )
+        });
+        let result = (|| {
+            let started = Instant::now();
+            let mut native_peak = 0u64;
+            let mut disk_check = Instant::now();
+            loop {
+                let resource_error = (|| {
+                    let size = controlled_temp::native_size(scratch).map_err(err)?;
+                    if size > 8 * 1024 * 1024 * 1024 {
+                        return Err("原生暫存觀察用量超過 8 GiB，未保存輸出".to_owned());
                     }
-                ));
+                    if size > native_peak {
+                        budget.reserve(size - native_peak).map_err(err)?;
+                        native_peak = size;
+                        #[cfg(test)]
+                        TEST_NATIVE_PEAK.with(|v| v.set(v.get().max(size)));
+                    }
+                    // 核心 Job I/O 計數：涵蓋受控目錄外、子目錄、刪除後仍開啟的寫入。
+                    // 管線內尚未讀出的少量資料會使估計略偏高（保守方向）。
+                    #[cfg(windows)]
+                    {
+                        let native_written = guard
+                            .write_bytes()
+                            .map_err(|e| format!("無法讀取子程序寫入計數：{e}"))?
+                            .saturating_sub(piped.load(Ordering::Relaxed));
+                        if native_written > native_write_limit {
+                            return Err(format!(
+                                "引擎程序樹累計寫入（不含標準串流）超過 {} GiB，未保存輸出",
+                                native_write_limit / (1024 * 1024 * 1024)
+                            ));
+                        }
+                    }
+                    if disk_check.elapsed() >= Duration::from_millis(250) {
+                        controlled_temp::check_free(scratch, 2 * 1024 * 1024 * 1024)
+                            .map_err(err)?;
+                        disk_check = Instant::now();
+                    }
+                    Ok::<(), String>(())
+                })()
+                .err();
+                if resource_error.is_some()
+                    || failed.load(Ordering::Relaxed)
+                    || check_job(cancel).is_err()
+                    || started.elapsed() > timeout
+                {
+                    #[cfg(windows)]
+                    guard.terminate();
+                    let _ = child.kill();
+                    child
+                        .wait()
+                        .map_err(|e| format!("等待子程序停止失敗：{e}"))?;
+                    *stopped = true;
+                    break Err(if let Some(reason) = resource_error {
+                        reason
+                    } else if failed.load(Ordering::Relaxed) {
+                        "引擎串流超限或寫入失敗，未保存輸出".into()
+                    } else if let Err(reason) = check_job(cancel) {
+                        reason
+                    } else {
+                        format!("超過單次執行 {} 秒限制", timeout.as_secs())
+                    });
+                }
+                match child.try_wait() {
+                    Ok(Some(status)) => {
+                        *stopped = true;
+                        if status.success() {
+                            break Ok(());
+                        }
+                        break Err(format!(
+                            "{} 失敗 ({status})",
+                            engine.file_name().unwrap_or_default().to_string_lossy()
+                        ));
+                    }
+                    Ok(None) => std::thread::sleep(Duration::from_millis(40)),
+                    Err(e) => {
+                        #[cfg(windows)]
+                        guard.terminate();
+                        let _ = child.kill();
+                        child
+                            .wait()
+                            .map_err(|wait| format!("{e}；等待子程序停止失敗：{wait}"))?;
+                        *stopped = true;
+                        break Err(err(e));
+                    }
+                }
             }
-            Ok(None) => std::thread::sleep(Duration::from_millis(40)),
-            Err(e) => {
-                let _ = child.kill();
-                child
-                    .wait()
-                    .map_err(|wait| format!("{e}；等待子程序停止失敗：{wait}"))?;
-                *stopped = true;
-                return Err(err(e));
+        })();
+        // 正常退出也關閉 Job，避免後代持有串流而阻止讀取執行緒結束。
+        #[cfg(windows)]
+        let tree_result = guard.stop_and_wait();
+        readers_stopped.store(true, Ordering::Release);
+        #[cfg(test)]
+        let tree_result = {
+            TEST_TREE_CONFIRMED.with(|v| v.set(tree_result.is_ok()));
+            if tree_result.is_ok() && TEST_TREE_FAILURE.with(|v| v.get()) {
+                Err(std::io::Error::other("injected tree confirmation failure"))
+            } else {
+                tree_result
             }
+        };
+        #[cfg(test)]
+        if std::env::var_os("IMBC_TEST_RESOURCE_LOG").is_some() {
+            eprintln!(
+                "RESOURCE peak_job_commit={} job_write_bytes={} piped={} scratch={} args={:?}",
+                guard.peak_committed().unwrap_or(0),
+                guard.write_bytes().unwrap_or(0),
+                piped.load(Ordering::Relaxed),
+                scratch.display(),
+                args
+            );
         }
+        #[cfg(windows)]
+        drop(guard);
+        finish_child_io(
+            stopped,
+            result,
+            tree_result,
+            || out_reader.join(),
+            || err_reader.join(),
+        )
+    });
+    if let Err(e) = result {
+        // GUI 以此精確值區分取消；引擎的告知文字不能改變取消分類。
+        if e == "已取消" {
+            return Err(e);
+        }
+        let mut stderr = stderr;
+        stderr
+            .seek(SeekFrom::Start(0))
+            .map_err(|secondary| format!("{e}；stderr 診斷定位失敗：{secondary}"))?;
+        let mut detail = Vec::new();
+        stderr
+            .take(4096)
+            .read_to_end(&mut detail)
+            .map_err(|secondary| format!("{e}；stderr 診斷讀取失敗：{secondary}"))?;
+        let detail = String::from_utf8_lossy(&detail);
+        return Err(if detail.trim().is_empty() {
+            e
+        } else {
+            format!("{e}：{}", detail.trim())
+        });
+    }
+    Ok(())
+}
+
+// 先記錄程序樹確認結果，再收回兩個執行緒；任何一個 panic 都不能略過另一個 join。
+fn finish_child_io(
+    stopped: &mut bool,
+    result: Result<()>,
+    tree: std::io::Result<()>,
+    out: impl FnOnce() -> std::thread::Result<std::io::Result<()>>,
+    error: impl FnOnce() -> std::thread::Result<std::io::Result<()>>,
+) -> Result<()> {
+    *stopped = tree.is_ok();
+    let out = out();
+    let error = error();
+    let mut errors = Vec::new();
+    if let Err(e) = tree {
+        errors.push(format!("無法確認子程序樹停止：{e}"));
+    }
+    if let Err(e) = result {
+        errors.push(e);
+    }
+    for (label, joined) in [("stdout", out), ("stderr", error)] {
+        match joined {
+            Err(_) => errors.push(format!("{label} 讀取執行緒異常")),
+            Ok(Err(e)) => errors.push(format!("{label} 寫入失敗，未保存輸出：{e}")),
+            Ok(Ok(())) => (),
+        }
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join("；"))
     }
 }
 
@@ -571,7 +960,6 @@ fn run_child(
 // empty alpha-name resources (1006 / 1045). Normalize only those empty records
 // in a private stream; all other resource, layer and composite bytes are copied.
 fn psd_compatible_source(source: &mut File, cancel: &AtomicBool) -> Result<Option<File>> {
-    use std::io::Write;
     fn long(file: &mut File) -> Result<u32> {
         let mut bytes = [0; 4];
         file.read_exact(&mut bytes)
@@ -642,8 +1030,10 @@ fn psd_compatible_source(source: &mut File, cancel: &AtomicBool) -> Result<Optio
     let removed_size: u64 = removed.iter().map(|(a, b)| b - a).sum();
     let mut out = job_file()?;
     copy_bytes(source, &mut out, resource_length_pos, cancel)?;
-    out.write_all(&((resource_length - removed_size) as u32).to_be_bytes())
-        .map_err(err)?;
+    write_job_bytes(
+        &mut out,
+        &((resource_length - removed_size) as u32).to_be_bytes(),
+    )?;
     source.seek(SeekFrom::Start(start)).map_err(err)?;
     let mut cursor = start;
     for (a, b) in removed {
@@ -661,16 +1051,34 @@ fn copy_bytes(
     mut count: u64,
     cancel: &AtomicBool,
 ) -> Result<()> {
-    use std::io::Write;
     let mut buffer = [0; 65536];
     while count > 0 {
         check_job(cancel)?;
         let n = count.min(buffer.len() as u64) as usize;
         source.read_exact(&mut buffer[..n]).map_err(err)?;
-        target.write_all(&buffer[..n]).map_err(err)?;
+        write_job_bytes(target, &buffer[..n])?;
         count -= n as u64;
     }
     Ok(())
+}
+
+fn write_job_bytes(target: &mut File, bytes: &[u8]) -> Result<()> {
+    use std::io::Write;
+    let end = target
+        .stream_position()
+        .map_err(err)?
+        .checked_add(bytes.len() as u64)
+        .ok_or("暫存長度溢位")?;
+    if end > engine_limits::OUTPUT_LIMIT {
+        return Err("暫存寫入超過 16 GiB 上限".into());
+    }
+    JOB_BUDGET.with(|b| {
+        if let Some(budget) = b.borrow().as_ref() {
+            budget.reserve(bytes.len() as u64).map_err(err)?;
+        }
+        Ok::<(), String>(())
+    })?;
+    target.write_all(bytes).map_err(err)
 }
 
 // PNG's animation control chunk precedes image data. The ordinary PNG coder
@@ -731,6 +1139,31 @@ fn png_color_chunks(file: &mut File) -> Result<(Option<[u8; 4]>, bool)> {
     }
 }
 
+/// 目的地 `.tmp*` 的擁有權日誌項目（P1-C）。宣告於 NamedTempFile 之前，使其較晚 drop：
+/// 檔案先刪除或發布，項目才釋放。崩潰時留下的項目由下次啟動以 File ID 核對後回收。
+/// 檔案系統不提供可靠 File ID（部分 SMB／NAS）時不記錄：只會漏收，不會誤刪。
+struct TempRecord(Option<instance_ledger::Entry>);
+impl TempRecord {
+    fn none() -> Self {
+        Self(None)
+    }
+    fn record(temp: &NamedTempFile) -> Result<Self> {
+        let ledger = instance_ledger::global().map_err(err)?;
+        Ok(Self(
+            ledger
+                .record(instance_ledger::Kind::File, temp.as_file(), temp.path())
+                .ok(),
+        ))
+    }
+}
+impl Drop for TempRecord {
+    fn drop(&mut self) {
+        if let Some(entry) = self.0.take() {
+            entry.release();
+        }
+    }
+}
+
 fn publish(
     mut temp: NamedTempFile,
     dir: &Path,
@@ -765,6 +1198,15 @@ fn image_stage_error(stage: &str, detail: String) -> String {
     let lower = detail.to_ascii_lowercase();
     let hint = if lower.contains("invalid psd resource block offset") {
         "；ImageMagick 無法讀取 Photoshop 資源區塊，請用原繪圖軟體另存新檔後再試"
+    } else if lower.contains("bad_alloc")
+        || lower.contains("std::bad_alloc")
+        || lower.contains("memory allocation")
+        || lower.contains("allocation failed")
+        || lower.contains("not enough memory")
+        || lower.contains("0xe06d7363")
+        || lower.contains("0xc0000017")
+    {
+        "；引擎無法配置記憶體，可能達到工作 committed-memory 上限或系統可用額度；請關閉其他工作後再試。JXL C++ 例外也可能由記憶體不足引起，原始診斷保留供檢查"
     } else if lower.contains("cache resources exhausted")
         || lower.contains("disk allocation failed")
         || lower.contains("no space left")
@@ -813,7 +1255,12 @@ impl std::fmt::Display for Verification {
         // Build the line from fields and skip empty ones, so no stray separators appear.
         // Plain words instead of "✓": the GUI font may render the glyph as blank space.
         let fields = [
-            (if self.exact { "pixels exact" } else { "pixels changed" }).to_owned(),
+            (if self.exact {
+                "pixels exact"
+            } else {
+                "pixels changed"
+            })
+            .to_owned(),
             format!("{}→{} bit", self.input_depth, self.output_depth),
             (if self.icc && self.color_verified {
                 "ICC preserved"
@@ -1104,7 +1551,7 @@ fn convert_with_options_inner(
     validate_engine(engine)?;
     verify_active_policy(engine, cancel)?;
     let input_format = Format::input(input)?;
-    let mut source = File::open(input).map_err(err)?;
+    let mut source = File::open(input).map_err(|e| format!("開啟來源失敗：{e}"))?;
     if !source.metadata().map_err(err)?.is_file() {
         return Err("來源不是一般檔案".into());
     }
@@ -1142,7 +1589,7 @@ fn convert_with_options_inner(
             "disk",
             "8GiB",
             "-format",
-            "%n %w %h\n",
+            "%n %w %h %z %[channels]\n",
             // Set explicit -ping after -format for metadata-only inspection.
             "-ping",
             input_format.input_coder(),
@@ -1156,14 +1603,29 @@ fn convert_with_options_inner(
     let mut frames = String::new();
     info.take(256).read_to_string(&mut frames).map_err(err)?;
     let fields: Vec<_> = frames.split_whitespace().collect();
-    if fields.len() != 3 || fields[0] != "1" {
+    if fields.len() != 6 || fields[0] != "1" {
         return Err("僅支援靜態單張圖片（不支援多頁 TIFF 或動畫）".into());
     }
     let width = fields[1].parse::<u64>().map_err(err)?;
     let height = fields[2].parse::<u64>().map_err(err)?;
+    let depth = fields[3].parse::<u64>().map_err(err)?;
+    let channels = fields[5].parse::<f64>().map_err(err)?;
+    if !channels.is_finite() || channels < 1.0 || channels > 64.0 || channels.fract() != 0.0 {
+        return Err("來源通道數無效".into());
+    }
+    let channels = channels as u64;
+    JOB_IMAGE.with(|v| v.set((width.saturating_mul(height), depth, channels)));
     if width.saturating_mul(height) > 400_000_000 {
         return Err("圖片超過 400 MP（4 億像素）上限".into());
     }
+    let reservations = controlled_temp::preflight(
+        &job_dir(),
+        dir,
+        width.saturating_mul(height),
+        source.metadata().map_err(err)?.len(),
+    )
+    .map_err(|e| format!("磁碟資源預檢失敗：{e}"))?;
+    JOB_RESERVATIONS.with(|r| r.borrow_mut().extend(reservations));
     if matches!(format, Format::Psd) && (width > 30000 || height > 30000) {
         return Err("PSD 尺寸上限為每邊 30000 像素；不輸出 PSB".into());
     }
@@ -1233,7 +1695,9 @@ fn convert_with_options_inner(
     if input_depth > 16 && !matches!(format, Format::Jxl | Format::Tiff) {
         return Err("超過 16-bit／浮點來源請使用 JXL 或 TIFF，避免靜默截斷精度".into());
     }
-    let destination = dir.canonicalize().map_err(err)?;
+    let destination = dir
+        .canonicalize()
+        .map_err(|e| format!("輸出目錄解析失敗：{e}"))?;
     let mut intermediate = job_file()?;
     source.seek(SeekFrom::Start(0)).map_err(err)?;
     let mut args: Vec<String> = [
@@ -1282,14 +1746,14 @@ fn convert_with_options_inner(
         f.take(16 * 1024 * 1024 + 1)
             .read_to_end(&mut data)
             .map_err(err)?;
-        if data.len() < 132
+        if data.len() > 16 * 1024 * 1024
+            || data.len() < 132
             || &data[36..40] != b"acsp"
             || u32::from_be_bytes(data[..4].try_into().unwrap()) as usize != data.len()
         {
             return Err("ICC 標頭或長度無效".into());
         }
-        use std::io::Write;
-        profile.as_file_mut().write_all(&data).map_err(err)?;
+        write_job_bytes(profile.as_file_mut(), &data)?;
         effective_icc_model = Some(data[16..20].try_into().unwrap());
         target_profile_hash = Some(sha256(profile.as_file_mut())?);
         args.extend([
@@ -1349,7 +1813,10 @@ fn convert_with_options_inner(
         return Err("中繼輸出為空".into());
     }
     intermediate.seek(SeekFrom::Start(0)).map_err(err)?;
+    #[allow(unused_assignments)] // 只為 drop 順序先宣告
+    let mut _temp_record = TempRecord::none();
     let mut temp = NamedTempFile::new_in(&destination).map_err(err)?;
+    _temp_record = TempRecord::record(&temp)?;
     // ICC conversion can produce fractional samples from 8-bit input.
     // Quantize only to 16-bit for formats that support it, matching verification.
     let depth = if input_depth > 16 {
@@ -1624,10 +2091,17 @@ fn jpeg_reconstruction_inner(
     }
     let mut source = job_file()?;
     let mut original = File::open(input).map_err(err)?;
-    std::io::copy(&mut original, &mut source).map_err(err)?;
+    let length = original.metadata().map_err(err)?.len();
+    if length > engine_limits::OUTPUT_LIMIT {
+        return Err("JPEG ↔ JXL 來源副本超過 16 GiB 上限".into());
+    }
+    copy_bytes(&mut original, &mut source, length, cancel)?;
     source.seek(SeekFrom::Start(0)).map_err(err)?;
     let destination = dir.canonicalize().map_err(err)?;
+    #[allow(unused_assignments)] // 只為 drop 順序先宣告
+    let mut _output_record = TempRecord::none();
     let mut output = NamedTempFile::new_in(&destination).map_err(err)?;
+    _output_record = TempRecord::record(&output)?;
     let cjxl = tools.join("cjxl.exe");
     let djxl = tools.join("djxl.exe");
     let hash;
@@ -1636,7 +2110,15 @@ fn jpeg_reconstruction_inner(
         hash = sha256(&mut source)?;
         run(
             &cjxl,
-            &["-", "-", "--lossless_jpeg=1", "--num_threads=1"],
+            // libjxl 0.13 預設對 4:4:4／灰階 JPEG 啟用 LF smoothing；libjxl 0.12 以前的 djxl
+            // 會以退出碼 0 還原出不同位元組。明確關閉以保持既有輸出的跨版本無損還原。
+            &[
+                "-",
+                "-",
+                "--lossless_jpeg=1",
+                "--jpeg_reconstruction_lfs=0",
+                "--num_threads=1",
+            ],
             &source,
             output.as_file(),
             cancel,
@@ -2693,3 +3175,10 @@ mod regression_r3;
 #[cfg(test)]
 #[path = "regression_final.rs"]
 mod regression_final;
+
+#[cfg(test)]
+#[path = "regression_lowil_review.rs"]
+mod regression_lowil_review;
+#[cfg(test)]
+#[path = "regression_security.rs"]
+mod regression_security;

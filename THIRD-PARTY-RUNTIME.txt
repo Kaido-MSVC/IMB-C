@@ -1,3 +1,16 @@
+IMB-C 1.3.3 隨附元件（2026-11-13，ImageMagick 7.1.2-35）：
+ImageMagick 已由 7.1.2-34 更新為 7.1.2-35 Q16-HDRI（修正 Windows 路徑 policy 繞過 GHSA-hpjv-7vmp-f58w、TIFF 解碼 GHSA-gr4q-6v79-qj3g、XMP／profile policy 繞過等公告）。MagickCore、MagickWand、magick.exe 與 10 個 coder 模組從官方 ImageMagick-7.1.2-35-Windows.7z（SHA-256 與 SLSA attestation 已核對，來源 commit 5d1bcc55f＝tag 7.1.2-35）重建，沿用私有組態隔離補丁及 PSD／AVIF 修改；其他第三方 DLL 不變。ImageMagick License 條文不變。建置來源、修改與雜湊：licenses/security-20261113/ImageMagick-7.1.2-35-PROVENANCE.json、ImageMagick-7.1.2-35-imb-c-build-source.zip、上游 SBOM ImageMagick-7.1.2-35-upstream-SBOM.cdx.json；重建腳本 scripts/build-imagemagick-7.1.2-35.py。1.3.3 正式 runtime 以 MSVC /pathmap 編譯，來源與選項相同，不內嵌本機建置路徑。下方 7.1.2-34 相關敘述為歷史紀錄。
+
+IMB-C 1.3.3 隨附元件（2026-11-13，CVE-2026-111497／libjxl 0.13.0 安全修補）：
+ImageMagick JPEG XL 委派已改為 libjxl 0.13.0（commit 5a7da83）與 Brotli 1.2.1（commit db24a98），由未修改的上游 tag 以 MSVC 重建為同名 CORE_RL_jpeg-xl_.dll／CORE_RL_brotli_.dll，匯出名稱集合與 0.12.0 相同；lcms 2.19.1 不變。授權不變：libjxl BSD-3-Clause＋PATENTS、Brotli MIT、Highway Apache-2.0；條文與先前附件逐字相同，libjxl AUTHORS 已換成 0.13.0 版本。
+專用 cjxl／djxl 改為官方 libjxl 0.13.0 Windows x64 static 發行檔（未修改；asset digest 與 GitHub attestation 已核對），授權集合與 0.12.0 相同。來源、建置設定與雜湊：licenses/security-20261113/SOURCES-jxl-brotli.json、licenses/jxl-tools/PROVENANCE.json、scripts/build-jxl-brotli-native.py。下方 v1.2 摘要中的 libjxl 0.12.0／Brotli 1.2.0 為歷史紀錄。
+
+2026-11-12 安全修補（1.3.3 前置）：
+目前私有 runtime 使用 libheif 1.23.7，取代下方歷史版本摘要中的 1.23.6；作者、LGPL-3.0-or-later 授權及修改／替換權利不變。libaom 保持 3.15.2。
+本輪對應來源、修改來源與雜湊：licenses/avif/libheif-1.23.7.zip、modified-source-1.23.7.zip、SOURCES-1.23.7.json。
+ImageMagick 仍為 7.1.2-34 Q16-HDRI；核心及 CLI 已重建以隔離私有組態／模組搜尋。新增來源補丁與建置材料：licenses/security-20261112/isolated-core-source.zip，重建說明見 AVIF-REBUILD.md。
+下列舊版本、基線雜湊及交付流程保留為歷史摘要。
+
 v1.2 additions (2026-10-28):
 TIFF: libtiff 4.7.2 (Sam Leffler; Silicon Graphics, Inc.), libtiff license.
 liblzma 5.8.4: Copyright (C) The XZ Utils authors and contributors, 0BSD for liblzma (not the upstream full-SBOM LGPL classification).

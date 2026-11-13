@@ -358,6 +358,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     });
     let engine = engine::locate_engine();
+    // 背景回收先前異常結束留下的暫存（只處理已終止執行個體的擁有權紀錄）；有結果才寫入日誌。
+    let recovery_weak = app.as_weak();
+    std::thread::spawn(move || {
+        let lines = engine::recover_stale_temp();
+        if !lines.is_empty() {
+            let _ = slint::invoke_from_event_loop(move || {
+                if let Some(a) = recovery_weak.upgrade() {
+                    let mut log = a.get_log().to_string();
+                    for line in &lines {
+                        log = append_log(&log, line);
+                    }
+                    a.set_log(log.into());
+                }
+            });
+        }
+    });
     let state = Rc::new(RefCell::new(Selection {
         files: Vec::new(),
         output: if prefs.output_folder.is_dir() {
@@ -677,6 +693,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let done = AtomicUsize::new(0);
             let failed = AtomicUsize::new(0);
             let cancelled = AtomicUsize::new(0);
+            let system_stopped = AtomicBool::new(false);
             let workers = std::thread::available_parallelism()
                 .map(|n| n.get())
                 .unwrap_or(1)
@@ -685,6 +702,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let Ok(pool) = result {
                 pool.install(|| {
                     files.par_iter().for_each(|input| {
+                        if system_stopped.load(Ordering::Relaxed) {
+                            failed.fetch_add(1, Ordering::Relaxed);
+                            done.fetch_add(1, Ordering::Relaxed);
+                            return;
+                        }
                         if !c.load(Ordering::Relaxed) {
                             let line = format!("{}: {}", i18n::text(lang, 16), engine::display_path(&input));
                             let _ = weak.upgrade_in_event_loop(move |a| {
@@ -702,7 +724,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     .record(input, &verification.warnings)
                                     .is_err()
                                 {
-                                    c.store(true, Ordering::Relaxed);
+                                    system_stopped.store(true, Ordering::Relaxed);
                                 }
                                 format!(
                                     "{}: {} → {}\n  {}",
@@ -751,7 +773,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 failures,
                 cancellations,
             );
-            let stopped = c.load(Ordering::Relaxed);
+            let user_cancelled = c.load(Ordering::Relaxed);
+            let system_aborted = system_stopped.load(Ordering::Relaxed);
+            let stopped = user_cancelled || system_aborted;
             let _ = weak.upgrade_in_event_loop(move |a| {
                 a.set_busy(false);
                 a.set_successes(
@@ -770,7 +794,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 a.set_cancelled(cancellations as i32);
                 a.set_progress(count as f32 / files.len().max(1) as f32);
                 a.set_failures(failures as i32);
-                a.set_phase(if stopped { 4 } else { 3 });
+                a.set_phase(if system_aborted { 5 } else if user_cancelled { 4 } else { 3 });
                 if notify && !stopped {
                     if let Some(w) = completion_weak.upgrade() {
                         w.set_words(a.get_words());
@@ -791,6 +815,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(handle) = worker.borrow_mut().take() {
         let _ = handle.join();
     }
+    // 所有工作已結束；若沒有保留中的暫存，移除本執行個體的擁有權日誌。
+    engine::shutdown_instance();
     ui_result?;
     Ok(())
 }

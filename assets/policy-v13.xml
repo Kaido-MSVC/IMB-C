@@ -7,6 +7,8 @@
  <policy domain="resource" name="time" value="600"/>
  <policy domain="resource" name="width" value="32768"/>
  <policy domain="resource" name="height" value="32768"/>
+ <policy domain="system" name="max-profile-size" value="16MiB"/>
+ <policy domain="system" name="max-profile-count" value="16"/>
  <policy domain="delegate" rights="none" pattern="*"/>
  <policy domain="filter" rights="none" pattern="*"/>
  <policy domain="path" rights="none" pattern="@*"/>

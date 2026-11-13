@@ -1,0 +1,17 @@
+{
+  "version": "1.23.7",
+  "upstream_url": "https://codeload.github.com/strukturag/libheif/zip/refs/tags/v1.23.7",
+  "upstream_sha256": "b41400d7e461a15b82b505681e762ee606c21a08c69e5d807ed2fe7af063d47e",
+  "dll_sha256": "d468d8ba193938a5f05aa97d6eed1f416a4fc062623e6207e80318221ead09a7",
+  "aom": "3.15.2 static; original archive unchanged",
+  "patches": [
+    "AOM encoder default threads=1"
+  ],
+  "parallel_tile_decoding": false,
+  "plugin_loading": false,
+  "security_fixes": [
+    "bbf8e3abd60038e8867bf2673d694313f97c6c3a",
+    "e8e84bb02e337b79c7a4dc3b84872978965936b6"
+  ],
+  "legacy_sources": "SOURCES.json retained for 1.23.6 and original coder/CLI build provenance"
+}

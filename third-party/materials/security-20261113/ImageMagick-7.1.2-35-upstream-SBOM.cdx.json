@@ -1,0 +1,1324 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.5",
+  "serialNumber": "urn:uuid:a5e981f9-68e8-43bb-9152-e44f58b9f2b4",
+  "version": 1,
+  "metadata": {
+    "timestamp": "2026-10-31T23:11:48Z",
+    "component": {
+      "type": "application",
+      "bom-ref": "imagemagick",
+      "name": "ImageMagick",
+      "version": "7.1.2-35",
+      "externalReferences": [
+        {
+          "type": "vcs",
+          "url": "https://github.com/ImageMagick/ImageMagick"
+        }
+      ],
+      "properties": [
+        {
+          "name": "git.commit",
+          "value": "5d1bcc55f2c83bc2ff802118b7369756610f3ad4"
+        }
+      ]
+    }
+  },
+  "components": [
+    {
+      "type": "library",
+      "bom-ref": "aom",
+      "name": "aom",
+      "version": "3.15.2",
+      "publisher": "Alliance for Open Media",
+      "copyright": "Copyright (c) 2016, Alliance for Open Media. All rights reserved.",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-2-Clause"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://aomedia.googlesource.com/aom"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/ImageMagick/aom"
+        }
+      ],
+      "properties": [
+        {
+          "name": "releaseDate",
+          "value": "2026-10-09"
+        },
+        {
+          "name": "git.commit",
+          "value": "949b2083094619a8cf6491938d47e6c4804ed108"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "brotli",
+      "name": "brotli",
+      "version": "1.2.1",
+      "publisher": "Brotli Authors",
+      "copyright": "Copyright (c) 2009, 2010, 2013-2016 by the Brotli Authors.",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/google/brotli"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/ImageMagick/brotli"
+        }
+      ],
+      "properties": [
+        {
+          "name": "releaseDate",
+          "value": "2026-10-21"
+        },
+        {
+          "name": "git.commit",
+          "value": "62877063ab55b3494bdee9d1239156754aed6413"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "libbzip2",
+      "name": "libbzip2",
+      "version": "1.0.8",
+      "publisher": "Julian Seward, jseward@acm.org",
+      "copyright": "Copyright © 1996-2000 Julian R Seward",
+      "licenses": [
+        {
+          "license": {
+            "id": "bzip2-1.0.6"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://sourceware.org/bzip2/"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/ImageMagick/bzip2"
+        }
+      ],
+      "properties": [
+        {
+          "name": "releaseDate",
+          "value": "2019-07-13"
+        },
+        {
+          "name": "git.commit",
+          "value": "abffe764f875f71d051efb19d4c83139375f82d7"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "cairo",
+      "name": "cairo",
+      "version": "1.18.6",
+      "publisher": "Cairo library",
+      "copyright": "Copyright © 2013",
+      "licenses": [
+        {
+          "license": {
+            "id": "MPL-1.1"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://cairographics.org"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/ImageMagick/cairo"
+        }
+      ],
+      "properties": [
+        {
+          "name": "releaseDate",
+          "value": "2026-09-20"
+        },
+        {
+          "name": "git.commit",
+          "value": "4334da83d8f44abe5aab1a11956e3f8e6e58eac7"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "libcroco",
+      "name": "libcroco",
+      "version": "0.6.13",
+      "publisher": "Dodji Seketeli",
+      "copyright": "Copyright (C) 2003-2004 Dodji Seketeli.  All Rights Reserved.",
+      "licenses": [
+        {
+          "license": {
+            "id": "LGPL-2.0-or-later"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://gitlab.com/inkscape/libcroco"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/ImageMagick/croco"
+        }
+      ],
+      "properties": [
+        {
+          "name": "releaseDate",
+          "value": "2019-04-06"
+        },
+        {
+          "name": "git.commit",
+          "value": "178785cdc6faecad555a4e6fe4fda2b625046e8e"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "libde265",
+      "name": "libde265",
+      "version": "1.1.3",
+      "publisher": "Struktur AG.",
+      "copyright": "Copyright (c) 2013 Struktur AG.",
+      "licenses": [
+        {
+          "license": {
+            "id": "LGPL-3.0-or-later"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/strukturag/libde265"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/ImageMagick/de265"
+        }
+      ],
+      "properties": [
+        {
+          "name": "releaseDate",
+          "value": "2026-09-14"
+        },
+        {
+          "name": "git.commit",
+          "value": "5a0bf9f624d810de6af20e41ac3cfd92bf7de508"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "openexr",
+      "name": "openexr",
+      "version": "3.5.2",
+      "publisher": "Contributors to the OpenEXR Project.",
+      "copyright": "Copyright (c) Contributors to the OpenEXR Project.",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/AcademySoftwareFoundation/openexr"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/ImageMagick/exr"
+        }
+      ],
+      "properties": [
+        {
+          "name": "releaseDate",
+          "value": "2026-10-03"
+        },
+        {
+          "name": "git.commit",
+          "value": "85a96b21d3cdcae99fbea6f32f62eba9ca4a9fdd"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "libffi",
+      "name": "libffi",
+      "version": "3.8.0",
+      "publisher": "Anthony Green",
+      "copyright": "Copyright Anthony Green",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://sourceware.org/libffi"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/ImageMagick/ffi"
+        }
+      ],
+      "properties": [
+        {
+          "name": "releaseDate",
+          "value": "2026-08-09"
+        },
+        {
+          "name": "git.commit",
+          "value": "91982d4ac97b179dd1fb878caef2ed2847bc38b6"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "freetype",
+      "name": "freetype",
+      "version": "2.15.0",
+      "publisher": "David Turner, Robert Wilhelm, & Werner Lemberg",
+      "copyright": "Copyright © 2006 David Turner, Robert Wilhelm, & Werner Lemberg",
+      "licenses": [
+        {
+          "license": {
+            "id": "FTL"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://www.freetype.org"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/ImageMagick/freetype"
+        }
+      ],
+      "properties": [
+        {
+          "name": "releaseDate",
+          "value": "2026-10-11"
+        },
+        {
+          "name": "git.commit",
+          "value": "c872866d7b45c6926d82a636c3f9055472e6c334"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "fribidi",
+      "name": "fribidi",
+      "version": "1.0.18",
+      "publisher": "Sharif FarsiWeb, Inc",
+      "copyright": "Copyright (C) 2004 Sharif FarsiWeb, Inc",
+      "licenses": [
+        {
+          "license": {
+            "id": "LGPL-2.1-or-later"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/fribidi/fribidi"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/ImageMagick/fribidi"
+        }
+      ],
+      "properties": [
+        {
+          "name": "releaseDate",
+          "value": "2026-10-29"
+        },
+        {
+          "name": "git.commit",
+          "value": "a51f6765d9bfafab1f7bd3f5f507ccf1eac6be6b"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "gdk-pixbuf",
+      "name": "gdk-pixbuf",
+      "version": "2.44.8",
+      "publisher": "GNOME",
+      "copyright": "Copyright (C) 1999 The Free Software Foundation",
+      "licenses": [
+        {
+          "license": {
+            "id": "LGPL-2.1-or-later"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://gitlab.gnome.org/GNOME/gdk-pixbuf"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/ImageMagick/gdk-pixbuf"
+        }
+      ],
+      "properties": [
+        {
+          "name": "releaseDate",
+          "value": "2026-08-12"
+        },
+        {
+          "name": "git.commit",
+          "value": "92a234886a0337480770ef93dc74ea920bf39ab3"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "glib",
+      "name": "glib",
+      "version": "2.64.3",
+      "publisher": "Canonical Limited",
+      "copyright": "Copyright © 2013 Canonical Limited",
+      "licenses": [
+        {
+          "license": {
+            "id": "LGPL-2.1-or-later"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://gitlab.gnome.org/GNOME/glib"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/ImageMagick/glib"
+        }
+      ],
+      "properties": [
+        {
+          "name": "releaseDate",
+          "value": "2020-05-20"
+        },
+        {
+          "name": "git.commit",
+          "value": "ea0118ca0d408473d320b21262a1cdc6ce3e5f40"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "harfbuzz",
+      "name": "harfbuzz",
+      "version": "15.0.0",
+      "publisher": "Google, Inc.",
+      "copyright": "Copyright © 2010 Google, Inc.",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT-Modern-Variant"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/harfbuzz/harfbuzz"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/ImageMagick/harfbuzz"
+        }
+      ],
+      "properties": [
+        {
+          "name": "releaseDate",
+          "value": "2026-10-22"
+        },
+        {
+          "name": "git.commit",
+          "value": "c77409b255cbce3e39210681dfad9ba93eadbcbe"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "libheif",
+      "name": "libheif",
+      "version": "1.23.7",
+      "publisher": "Struktur AG.",
+      "copyright": "Copyright (c) 2017 Struktur AG",
+      "licenses": [
+        {
+          "license": {
+            "id": "LGPL-3.0-or-later"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/strukturag/libheif"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/ImageMagick/heif"
+        }
+      ],
+      "properties": [
+        {
+          "name": "releaseDate",
+          "value": "2026-10-26"
+        },
+        {
+          "name": "git.commit",
+          "value": "498042a72e805c50e5e84b57e15327f3cfdf6a63"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "libhwy",
+      "name": "libhwy",
+      "version": "1.4.0",
+      "publisher": "Google LLC",
+      "copyright": "Copyright 2019 Google LLC",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/google/highway"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/ImageMagick/highway"
+        }
+      ],
+      "properties": [
+        {
+          "name": "releaseDate",
+          "value": "2026-04-23"
+        },
+        {
+          "name": "git.commit",
+          "value": "e1a586af5be6358bb983ff608f9678a622209ca3"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "imath",
+      "name": "imath",
+      "version": "3.2.3",
+      "publisher": "Contributors to the OpenEXR Project",
+      "copyright": "Copyright (c) Contributors to the OpenEXR Project",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/AcademySoftwareFoundation/Imath"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/ImageMagick/imath"
+        }
+      ],
+      "properties": [
+        {
+          "name": "releaseDate",
+          "value": "2026-08-20"
+        },
+        {
+          "name": "git.commit",
+          "value": "1ec391453dd33f3432018d3a266e3d177a705235"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "libjpeg-turbo",
+      "name": "libjpeg-turbo",
+      "version": "3.2.1",
+      "publisher": "D. R. Commander",
+      "copyright": "Copyright (C) 2019 D. R. Commander",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://www.libjpeg-turbo.org/"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/ImageMagick/jpeg-turbo"
+        }
+      ],
+      "properties": [
+        {
+          "name": "releaseDate",
+          "value": "2026-10-27"
+        },
+        {
+          "name": "git.commit",
+          "value": "ea2dd9d26a47da90c87a3ab57f6ac7f85977be83"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "libjxl",
+      "name": "libjxl",
+      "version": "0.12.0",
+      "publisher": "The JPEG XL Project",
+      "copyright": "Copyright (c) the JPEG XL Project",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/libjxl/libjxl"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/ImageMagick/jpeg-xl"
+        }
+      ],
+      "properties": [
+        {
+          "name": "releaseDate",
+          "value": "2026-07-01"
+        },
+        {
+          "name": "git.commit",
+          "value": "8503118ff13ab8b11680296900da3361d6703dc1"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "lcms",
+      "name": "lcms",
+      "version": "2.19.1",
+      "publisher": "Little CMS",
+      "copyright": "Copyright (c) 1998-2014 Marti Maria Saguer",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://www.littlecms.com"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/ImageMagick/lcms"
+        }
+      ],
+      "properties": [
+        {
+          "name": "releaseDate",
+          "value": "2026-05-06"
+        },
+        {
+          "name": "git.commit",
+          "value": "d261ab6fda30fd7578a2ce7ace5c0b2c7d3fc0b8"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "liblqr",
+      "name": "liblqr",
+      "version": "0.4.2",
+      "publisher": "Carlo Baldassi",
+      "copyright": "Copyright (C) 2007 Carlo Baldassi",
+      "licenses": [
+        {
+          "license": {
+            "id": "LGPL-3.0-or-later"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/carlobaldassi/liblqr"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/ImageMagick/lqr"
+        }
+      ],
+      "properties": [
+        {
+          "name": "releaseDate",
+          "value": "2012-12-04"
+        },
+        {
+          "name": "git.commit",
+          "value": "a2e9e8b5b41bf0569f51482707a12d354a086f3a"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "liblzma",
+      "name": "liblzma",
+      "version": "5.8.4",
+      "publisher": "The Tukaani Project",
+      "copyright": "Copyright (c) 2016 Lasse Collin",
+      "licenses": [
+        {
+          "license": {
+            "id": "LGPL-2.1-or-later"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://tukaani.org/xz"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/ImageMagick/lzma"
+        }
+      ],
+      "properties": [
+        {
+          "name": "releaseDate",
+          "value": "2026-09-09"
+        },
+        {
+          "name": "git.commit",
+          "value": "131e9a49425f51b8dd8710c57fbaa527baed3989"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "openh264",
+      "name": "openh264",
+      "version": "2.7.0",
+      "publisher": "Cisco Systems Inc",
+      "copyright": "Copyright (c) 2013, Cisco Systems",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-2-Clause"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/cisco/openh264"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/ImageMagick/openh264"
+        }
+      ],
+      "properties": [
+        {
+          "name": "releaseDate",
+          "value": "2026-10-22"
+        },
+        {
+          "name": "git.commit",
+          "value": "8f7d29ca929a6b66682c0a5889a62a68c0cfa486"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "openjpeg",
+      "name": "openjpeg",
+      "version": "2.5.4",
+      "publisher": "Communications and Remote Sensing Lab",
+      "copyright": "Copyright © 2002 Communications and Remote Sensing Lab",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-2-Clause"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://www.openjpeg.org"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/ImageMagick/openjpeg"
+        }
+      ],
+      "properties": [
+        {
+          "name": "releaseDate",
+          "value": "2025-09-20"
+        },
+        {
+          "name": "git.commit",
+          "value": "97ce1d10749b1a02d657eae491e80c572ca183b2"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "openjph",
+      "name": "openjph",
+      "version": "0.32.0",
+      "publisher": "Aous Naman",
+      "copyright": "Copyright (c) Aous Naman ",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-2-Clause"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/aous72/OpenJPH"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/ImageMagick/openjph"
+        }
+      ],
+      "properties": [
+        {
+          "name": "releaseDate",
+          "value": "2026-09-17"
+        },
+        {
+          "name": "git.commit",
+          "value": "c1a1ffc1e3f90eb9397407f1f545a47e01390aef"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pango",
+      "name": "pango",
+      "version": "1.45.3",
+      "publisher": "Red Hat Software",
+      "copyright": "Copyright (C) 2006 Red Hat Software",
+      "licenses": [
+        {
+          "license": {
+            "id": "LGPL-2.0-only"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://gitlab.gnome.org/GNOME/pango"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/ImageMagick/pango"
+        }
+      ],
+      "properties": [
+        {
+          "name": "releaseDate",
+          "value": "2020-06-22"
+        },
+        {
+          "name": "git.commit",
+          "value": "0b1e4536e0005f3c36b523c17ea12322490efd45"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pixman",
+      "name": "pixman",
+      "version": "0.46.4",
+      "publisher": "SuSE, Inc.",
+      "copyright": " Copyright © 2000 SuSE, Inc.",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://gitlab.freedesktop.org/pixman/pixman"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/ImageMagick/pixman"
+        }
+      ],
+      "properties": [
+        {
+          "name": "releaseDate",
+          "value": "2025-07-20"
+        },
+        {
+          "name": "git.commit",
+          "value": "f7b55a8d3c39380724da9fbdef72ad70be800efc"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "libpng",
+      "name": "libpng",
+      "version": "1.6.59",
+      "publisher": "The PNG Development Group",
+      "copyright": "Copyright (c) Glenn Randers-Pehrson",
+      "licenses": [
+        {
+          "license": {
+            "id": "libpng-2.0"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/pnggroup/libpng"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/ImageMagick/png"
+        }
+      ],
+      "properties": [
+        {
+          "name": "releaseDate",
+          "value": "2026-09-28"
+        },
+        {
+          "name": "git.commit",
+          "value": "1ccb8b78643c7ad5360f00719a1e952ce0be7a53"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "libraqm",
+      "name": "libraqm",
+      "version": "0.11.0",
+      "publisher": "Information Technology Authority (ITA)",
+      "copyright": "Copyright © 2015 Information Technology Authority (ITA)",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/HOST-Oman/libraqm"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/ImageMagick/raqm"
+        }
+      ],
+      "properties": [
+        {
+          "name": "releaseDate",
+          "value": "2026-07-23"
+        },
+        {
+          "name": "git.commit",
+          "value": "a699b8b7838acb4ac8d5891f42ecf3d84a00a9ad"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "libraw",
+      "name": "libraw",
+      "version": "0.22.3",
+      "publisher": "LibRaw LLC",
+      "copyright": "Copyright 2008 LibRaw LLC",
+      "licenses": [
+        {
+          "license": {
+            "id": "LGPL-2.1-or-later"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/LibRaw/LibRaw"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/ImageMagick/raw"
+        }
+      ],
+      "properties": [
+        {
+          "name": "releaseDate",
+          "value": "2026-10-26"
+        },
+        {
+          "name": "git.commit",
+          "value": "71399d76efc3fa915bf3fb01ddede994b549a80a"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "librsvg",
+      "name": "librsvg",
+      "version": "2.40.20",
+      "publisher": "GNU",
+      "copyright": "Copyright © 2013",
+      "licenses": [
+        {
+          "license": {
+            "id": "LGPL-2.0-or-later"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://wiki.gnome.org/LibRsvg"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/ImageMagick/rsvg"
+        }
+      ],
+      "properties": [
+        {
+          "name": "releaseDate",
+          "value": "2017-12-15"
+        },
+        {
+          "name": "git.commit",
+          "value": "7415a6765db7554ba6f0f1b3dcb0877f36ff581b"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "libtiff",
+      "name": "libtiff",
+      "version": "4.7.2",
+      "publisher": "Silicon Graphics, Inc.",
+      "copyright": "Copyright (c) 1991 Silicon Graphics, Inc.",
+      "licenses": [
+        {
+          "license": {
+            "id": "libtiff"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://gitlab.com/libtiff/libtiff"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/ImageMagick/tiff"
+        }
+      ],
+      "properties": [
+        {
+          "name": "releaseDate",
+          "value": "2026-06-26"
+        },
+        {
+          "name": "git.commit",
+          "value": "3021cd03440ba6954f8bdf2b7ad4557a36092cd8"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "libwebp",
+      "name": "libwebp",
+      "version": "1.6.0",
+      "publisher": "Google Inc",
+      "copyright": "Copyright (c) 2010, Google Inc. All rights reserved.",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://chromium.googlesource.com/webm/libwebp"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/ImageMagick/webp"
+        }
+      ],
+      "properties": [
+        {
+          "name": "releaseDate",
+          "value": "2025-07-09"
+        },
+        {
+          "name": "git.commit",
+          "value": "b981ef267195cb12f2cb97e4dd23e12a1323a4ce"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "libxml2",
+      "name": "libxml2",
+      "version": "2.15.4",
+      "publisher": "Daniel Veillard",
+      "copyright": "Copyright (C) 1998 Daniel Veillard",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://gitlab.gnome.org/GNOME/libxml2"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/ImageMagick/xml"
+        }
+      ],
+      "properties": [
+        {
+          "name": "releaseDate",
+          "value": "2026-09-01"
+        },
+        {
+          "name": "git.commit",
+          "value": "3ba73c8312b7ac88adc1a2e62df13d0827e93a0f"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "libzip",
+      "name": "libzip",
+      "version": "1.12.1",
+      "publisher": "Dieter Baron and Thomas Klausner",
+      "copyright": " Copyright (C) 2003 Dieter Baron and Thomas Klausner",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/nih-at/libzip"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/ImageMagick/zip"
+        }
+      ],
+      "properties": [
+        {
+          "name": "releaseDate",
+          "value": "2026-10-14"
+        },
+        {
+          "name": "git.commit",
+          "value": "4fb2753af4c718080b62fbadda0e99fd9178ab6a"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "zlib",
+      "name": "zlib",
+      "version": "1.3.2",
+      "publisher": "Mark Adler",
+      "copyright": "Copyright (C) 1995 Mark Adler",
+      "licenses": [
+        {
+          "license": {
+            "id": "Zlib"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/madler/zlib"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/ImageMagick/zlib"
+        }
+      ],
+      "properties": [
+        {
+          "name": "releaseDate",
+          "value": "2026-02-17"
+        },
+        {
+          "name": "git.commit",
+          "value": "e42706934e4e7564d960031ae62ff29d918ee06d"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "zstd",
+      "name": "zstd",
+      "version": "1.5.7",
+      "publisher": "Meta Platforms, Inc. and affiliates",
+      "copyright": "Copyright (c) Meta Platforms, Inc. and affiliates",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/madler/zlib"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/ImageMagick/zstd"
+        }
+      ],
+      "properties": [
+        {
+          "name": "releaseDate",
+          "value": "2025-02-19"
+        },
+        {
+          "name": "git.commit",
+          "value": "4d5752ffeca8defb48ad744274f4f76b2866d71d"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "fontconfig",
+      "name": "fontconfig",
+      "version": "2.18.3",
+      "publisher": "Keith Packard",
+      "copyright": "Copyright © Keith Packard",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT-Modern-Variant"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://gitlab.freedesktop.org/fontconfig/fontconfig"
+        },
+        {
+          "type": "vcs",
+          "url": "https://github.com/ImageMagick/fontconfig"
+        }
+      ],
+      "properties": [
+        {
+          "name": "releaseDate",
+          "value": "2026-08-06"
+        },
+        {
+          "name": "git.commit",
+          "value": "943048d94dfa3d7d4a213f36f9ef7af988397cd4"
+        }
+      ]
+    }
+  ]
+}

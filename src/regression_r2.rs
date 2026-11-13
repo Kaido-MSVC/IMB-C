@@ -300,7 +300,8 @@ fn r2_policy_actual_broad_grant_detected_without_system_changes() {
         .unwrap();
     assert!(result.status.success());
     let listing = String::from_utf8_lossy(&result.stdout);
-    assert!(validate_policy_listing(&listing, &e.parent().unwrap().join("policy.xml")).is_err());
+    validate_policy_listing(&listing, &e.parent().unwrap().join("policy.xml")).unwrap();
+    assert!(!listing.contains(&dir.path().display().to_string()));
     verify_active_policy(&e, &AtomicBool::new(false)).unwrap();
 }
 
@@ -333,7 +334,7 @@ fn r2_cleanup_failure_keeps_published_success_and_warning() {
     assert_eq!(fs::read(sentinel).unwrap(), b"original");
     assert!(!warnings.is_empty() && warnings[0].contains(&root.display().to_string()));
     drop(hold);
-    assert!(root.starts_with(std::env::temp_dir()));
+    assert!(root.starts_with(controlled_temp::preferred_root().unwrap()));
     fs::remove_dir_all(root).unwrap();
 }
 #[cfg(windows)]
@@ -353,7 +354,7 @@ fn r2_cleanup_failure_does_not_mask_verification_failure() {
         .unwrap_err();
     assert!(error.contains("pixel verification failed") && error.contains("清理失敗"));
     drop(hold);
-    assert!(root.starts_with(std::env::temp_dir()));
+    assert!(root.starts_with(controlled_temp::preferred_root().unwrap()));
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -446,7 +447,10 @@ fn r2_temp_long_special_paths_and_exclusive_names() {
     };
     let result = convert_with_options_inner(&e, &src, &root, Format::Png, &options, &off);
     let ((_, v), warnings) = job.finish_with_warnings(result).unwrap();
-    assert!(v.icc && v.color_verified && v.exact && warnings.is_empty());
+    assert!(
+        v.icc && v.color_verified && v.exact && warnings.is_empty(),
+        "{v:?}; warnings={warnings:?}"
+    );
     assert!(!job_root.exists());
 }
 
@@ -466,8 +470,16 @@ fn r2_temp_unc_paths() {
         .unwrap();
     let src = icc_png(dir.path());
     let off = AtomicBool::new(false);
+    // 不論 UNC 路徑長短，Low IL 引擎暫存都必須改放本機 NTFS（2026-11-13 前，
+    // 只有長路徑會碰巧走本機短 cwd 分支；短路徑時引擎無法存取暫存而失敗）。
     let job = Job::new_in(dir.path()).unwrap();
     let job_root = job_dir();
+    assert!(
+        !controlled_temp::is_network_path(&job_root).unwrap(),
+        "engine temp stayed on network path: {}",
+        job_root.display()
+    );
+    assert!(!job_root.starts_with(dir.path()));
     let options = Options {
         target_icc: Some(PathBuf::from(
             r"C:\Windows\System32\spool\drivers\color\sRGB Color Space Profile.icm",
@@ -475,9 +487,151 @@ fn r2_temp_unc_paths() {
         ..Default::default()
     };
     let result = convert_with_options_inner(&e, &src, dir.path(), Format::Tiff, &options, &off);
-    let ((_, v), warnings) = job.finish_with_warnings(result).unwrap();
-    assert!(v.icc && v.color_verified && v.exact && warnings.is_empty());
+    let ((output, v), warnings) = job.finish_with_warnings(result).unwrap();
+    assert!(
+        v.icc && v.color_verified && v.exact,
+        "{v:?}; warnings={warnings:?}"
+    );
+    assert!(output.is_file(), "{}", output.display());
+    assert_eq!(
+        output.parent().unwrap().canonicalize().unwrap(),
+        dir.path().canonicalize().unwrap()
+    );
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert!(
+        warnings[0].contains("改用本機受控暫存")
+            && warnings[0].contains(&display_path(job_root.parent().unwrap())),
+        "{warnings:?}"
+    );
     assert!(!job_root.exists());
+    // UNC 目錄只應有來源與輸出，沒有 imb-c-work-* 等暫存殘留。
+    let leftovers: Vec<_> = fs::read_dir(dir.path())
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .filter(|n| n.starts_with("imb-c-"))
+        .collect();
+    assert!(leftovers.is_empty(), "{leftovers:?}");
+}
+
+#[cfg(windows)]
+#[test]
+fn r2_network_temp_root_is_redirected_to_local_ntfs() {
+    // 只解析路徑字首，不實際連線；不存在的共用也必須判定為網路路徑。
+    let requested = PathBuf::from(r"\\imbc-no-such-host.invalid\share\temp");
+    assert!(controlled_temp::is_network_path(&requested).unwrap());
+    assert!(
+        controlled_temp::is_network_path(&PathBuf::from(
+            r"\\?\UNC\imbc-no-such-host.invalid\share\temp"
+        ))
+        .unwrap()
+    );
+    let (root, original) = controlled_temp::local_engine_root(&requested).unwrap();
+    assert_eq!(original.as_deref(), Some(requested.as_path()));
+    assert!(!controlled_temp::is_network_path(&root).unwrap());
+    assert!(
+        !root
+            .to_string_lossy()
+            .to_ascii_lowercase()
+            .starts_with(r"c:\")
+    );
+    let local = controlled_temp::preferred_root().unwrap();
+    let (same, none) = controlled_temp::local_engine_root(&local).unwrap();
+    assert_eq!((same, none), (local, None));
+}
+
+#[cfg(windows)]
+#[test]
+#[ignore = "Owned SMB test directory required; set IMBC_TEST_UNC_ROOT and IMBC_TEST_ENGINE"]
+fn r2_unc_input_output_temp_matrix_and_locked_source() {
+    use std::os::windows::fs::OpenOptionsExt;
+    let e = engine();
+    let root = PathBuf::from(std::env::var_os("IMBC_TEST_UNC_ROOT").unwrap());
+    assert!(root.is_absolute() && root.is_dir());
+    let remote = tempfile::Builder::new()
+        .prefix("imb-c-unc-matrix-")
+        .tempdir_in(root)
+        .unwrap();
+    let local = tempfile::tempdir_in(controlled_temp::preferred_root().unwrap()).unwrap();
+    let remote_source = icc_png(remote.path());
+    let local_source = icc_png(local.path());
+    let off = AtomicBool::new(false);
+    let expected = sha256(&mut File::open(&local_source).unwrap()).unwrap();
+    // 分開 UNC 輸入、輸出、暫存，再測正規化後三者皆為 UNC。
+    for (label, input, destination_root, temp) in [
+        (
+            "input",
+            remote_source.clone(),
+            local.path().to_owned(),
+            local.path().to_owned(),
+        ),
+        (
+            "output",
+            local_source.clone(),
+            remote.path().to_owned(),
+            local.path().to_owned(),
+        ),
+        (
+            "temp",
+            local_source.clone(),
+            local.path().to_owned(),
+            remote.path().to_owned(),
+        ),
+        (
+            "verbatim-all",
+            remote_source.canonicalize().unwrap(),
+            remote.path().canonicalize().unwrap(),
+            remote.path().canonicalize().unwrap(),
+        ),
+    ] {
+        let destination = destination_root.join(label);
+        fs::create_dir(&destination).unwrap();
+        let job = Job::new_in(&temp).unwrap();
+        let owned = job_dir();
+        let owned_local = !controlled_temp::is_network_path(&owned).unwrap();
+        let result = convert_with_options_inner(
+            &e,
+            &input,
+            &destination,
+            Format::Tiff,
+            &Options::default(),
+            &off,
+        );
+        let ((output, verification), warnings) = job.finish_with_warnings(result).unwrap();
+        eprintln!("UNC_CASE {label}: {verification:?}; warnings={warnings:?}");
+        assert!(output.is_file());
+        assert!(verification.icc && verification.color_verified && verification.exact);
+        assert!(owned_local, "{label}: {}", owned.display());
+        if matches!(label, "temp" | "verbatim-all") {
+            // 要求的暫存根目錄在 UNC：改用本機受控暫存，並以警告告知實際路徑。
+            assert_eq!(warnings.len(), 1, "{label}: {warnings:?}");
+            assert!(
+                warnings[0].contains("改用本機受控暫存"),
+                "{label}: {warnings:?}"
+            );
+        } else {
+            assert!(warnings.is_empty(), "{label}: {warnings:?}");
+        }
+        assert!(!owned.exists(), "{label}: {}", owned.display());
+        assert_eq!(sha256(&mut File::open(&input).unwrap()).unwrap(), expected);
+    }
+    let destination = remote.path().join("locked-source-output");
+    fs::create_dir(&destination).unwrap();
+    let sentinel = destination.join("existing.tiff");
+    fs::write(&sentinel, b"existing user output").unwrap();
+    let hold = File::options()
+        .read(true)
+        .share_mode(0)
+        .open(&remote_source)
+        .unwrap();
+    let error = convert(&e, &remote_source, &destination, Format::Tiff, &off).unwrap_err();
+    assert!(error.contains("開啟來源失敗"), "{error}");
+    drop(hold);
+    assert_eq!(fs::read(sentinel).unwrap(), b"existing user output");
+    assert_eq!(fs::read_dir(&destination).unwrap().count(), 1);
+    assert_eq!(
+        sha256(&mut File::open(&remote_source).unwrap()).unwrap(),
+        expected
+    );
 }
 
 #[cfg(windows)]
