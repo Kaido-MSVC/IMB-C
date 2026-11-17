@@ -14,6 +14,10 @@ rayon = "=1.12.0"
 tempfile = "=3.27.0"
 sha2 = "=0.10.9"
 
+# 相依套件不產生除錯資訊，縮小 debug 產物（自己的程式碼仍保留完整除錯資訊）
+[profile.dev.package."*"]
+debug = false
+
 [profile.release]
 lto = "thin"
 strip = true
