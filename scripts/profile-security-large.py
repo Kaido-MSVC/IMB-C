@@ -73,8 +73,9 @@ def main():
     for path in (args.test_exe, args.engine, args.source):
         if not path.is_absolute() or not path.is_file():
             parser.error(f"an absolute existing file is required: {path}")
-    if args.source.resolve().is_relative_to(Path(r"D:\don\test")):
-        parser.error("copy the read-only original into an isolated fixture directory first")
+    owned_work = Path(__file__).resolve().parents[1] / "work"
+    if not args.source.resolve().is_relative_to(owned_work):
+        parser.error("copy the read-only original into an isolated directory under project work first")
     args.record.mkdir(parents=True, exist_ok=False)
     root = Path(os.environ.get("MAGICK_TEMPORARY_PATH", r"D:\ImageMagick-Temp"))
     if not root.is_absolute() or not root.is_dir():

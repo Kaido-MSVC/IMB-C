@@ -85,9 +85,17 @@ impl ControlledDir {
                 .ok_or_else(|| io::Error::other("暫存目錄已關閉"))?
                 .try_clone()?,
         );
-        Self::with_pins(&self.path, prefix, ancestors)
+        Self::with_pins(&self.path, prefix, ancestors, 1)
     }
     pub(super) fn create(root: &Path, prefix: &str) -> io::Result<Self> {
+        Self::create_with_sharing(root, prefix, 1)
+    }
+    /// 外部工具需在目錄內原子 rename 報告；允許 WRITE sharing，仍禁止 DELETE。
+    /// 不用於 Low IL 引擎工作目錄。
+    pub(super) fn external(root: &Path) -> io::Result<Self> {
+        Self::create_with_sharing(root, "imb-c-iat-", 3)
+    }
+    fn create_with_sharing(root: &Path, prefix: &str, sharing: u32) -> io::Result<Self> {
         if !root.is_absolute()
             || root
                 .components()
@@ -106,7 +114,7 @@ impl ControlledDir {
         require_ntfs(root)?;
         // 執行個體紀錄先建立；無法記錄擁有權就不建立目錄，避免產生無法安全回收的殘留。
         let ledger = super::instance_ledger::global()?;
-        let mut owned = Self::with_pins(root, prefix, ancestors)?;
+        let mut owned = Self::with_pins(root, prefix, ancestors, sharing)?;
         // 建立與記錄之間崩潰會留下未記錄的空目錄（名稱隨機、無內容）；只會漏收，不會誤刪。
         owned.entry = Some(ledger.record(
             super::instance_ledger::Kind::Dir,
@@ -127,12 +135,18 @@ impl ControlledDir {
         owned._ancestors = relaxed;
         Ok(owned)
     }
-    fn with_pins(root: &Path, prefix: &str, ancestors: Vec<File>) -> io::Result<Self> {
+    fn with_pins(
+        root: &Path,
+        prefix: &str,
+        ancestors: Vec<File>,
+        sharing: u32,
+    ) -> io::Result<Self> {
         let (name, own) = create_directory(
             ancestors
                 .last()
                 .ok_or_else(|| io::Error::other("暫存父目錄缺少控制代碼"))?,
             prefix,
+            sharing,
         )?;
         let path = root.join(name);
         Ok(Self {
@@ -466,7 +480,11 @@ struct IoStatus {
     status: usize,
     information: usize,
 }
-fn create_directory(parent: &File, prefix: &str) -> io::Result<(String, File)> {
+pub(super) fn create_directory(
+    parent: &File,
+    prefix: &str,
+    sharing: u32,
+) -> io::Result<(String, File)> {
     use std::os::windows::io::FromRawHandle;
     #[link(name = "bcrypt")]
     unsafe extern "system" {
@@ -563,7 +581,7 @@ fn create_directory(parent: &File, prefix: &str) -> io::Result<(String, File)> {
     attributes.security = descriptor;
     let mut handle = std::ptr::null_mut();
     let mut iosb = IoStatus::default();
-    // FILE_CREATE：只建立新目錄，原子取得不允許 WRITE／DELETE sharing 的控制代碼。
+    // FILE_CREATE：只建立新目錄，原子取得禁止 DELETE sharing 的控制代碼；引擎另禁止 WRITE sharing。
     // 不使用 CreateDirectory → 重新開啟的兩步流程，避免建立後被替換。
     let status = unsafe {
         NtCreateFile(
@@ -573,7 +591,7 @@ fn create_directory(parent: &File, prefix: &str) -> io::Result<(String, File)> {
             &mut iosb,
             std::ptr::null(),
             0x10,
-            1,
+            sharing,
             2,
             0x21,
             std::ptr::null(),
@@ -602,6 +620,396 @@ thread_local! { pub(super) static TEST_PENDING_WAIT_MS: std::cell::Cell<Option<u
 // 在「路徑操作失敗之後、狀態查詢之前」執行，重現持有者剛好釋放的競態（實際引擎測試曾觀察到）。
 #[cfg(test)]
 thread_local! { static TEST_BEFORE_PROBE: std::cell::RefCell<Option<Box<dyn FnOnce()>>> = const { std::cell::RefCell::new(None) }; }
+
+impl Drop for ControlledDir {
+    fn drop(&mut self) {
+        let _ = self.cleanup();
+    }
+}
+
+pub(super) const DEFAULT_ROOT: &str = r"D:\ImageMagick-Temp";
+
+pub(super) fn preferred_root() -> io::Result<PathBuf> {
+    let root = std::env::var_os("MAGICK_TEMPORARY_PATH")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(DEFAULT_ROOT));
+    if !root.is_absolute() || !root.is_dir() {
+        return Err(io::Error::other(
+            "ImageMagick 暫存根目錄不存在或不是絕對路徑；請設定 MAGICK_TEMPORARY_PATH 或建立 D:\\ImageMagick-Temp；不自動改用 C 槽",
+        ));
+    }
+    Ok(root)
+}
+
+/// UNC 路徑、網路磁碟機，或解析後指向網路的符號連結。
+/// Low IL 引擎子程序無法存取這些位置（實測 `\\localhost\D$` 回報路徑無效）。
+pub(super) fn is_network_path(path: &Path) -> io::Result<bool> {
+    use std::os::windows::ffi::OsStrExt;
+    use std::path::Prefix;
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetVolumePathNameW(path: *const u16, volume: *mut u16, size: u32) -> i32;
+        fn GetDriveTypeW(root: *const u16) -> u32;
+    }
+    const DRIVE_REMOTE: u32 = 4;
+    let unc = |p: &Path| {
+        matches!(
+            p.components().next(),
+            Some(Component::Prefix(prefix))
+                if matches!(prefix.kind(), Prefix::UNC(..) | Prefix::VerbatimUNC(..))
+        )
+    };
+    if unc(path) {
+        return Ok(true);
+    }
+    let canonical = path.canonicalize()?;
+    if unc(&canonical) {
+        return Ok(true);
+    }
+    let wide: Vec<_> = canonical.as_os_str().encode_wide().chain(Some(0)).collect();
+    let mut mount = [0u16; 32768];
+    if unsafe { GetVolumePathNameW(wide.as_ptr(), mount.as_mut_ptr(), mount.len() as u32) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(unsafe { GetDriveTypeW(mount.as_ptr()) } == DRIVE_REMOTE)
+}
+
+/// 引擎暫存一律放在本機 NTFS。要求的根目錄是網路路徑時，依序改用
+/// `MAGICK_TEMPORARY_PATH`（若為本機）與 `D:\ImageMagick-Temp`；都不可用就回報錯誤，
+/// 不改用 C 槽或系統 TEMP。第二個回傳值是被取代的原要求路徑，呼叫端必須告知使用者。
+pub(super) fn local_engine_root(requested: &Path) -> io::Result<(PathBuf, Option<PathBuf>)> {
+    if !is_network_path(requested)? {
+        return Ok((requested.to_path_buf(), None));
+    }
+    let mut candidates = Vec::new();
+    if let Ok(root) = preferred_root() {
+        candidates.push(root);
+    }
+    candidates.push(PathBuf::from(DEFAULT_ROOT));
+    for candidate in candidates {
+        if candidate.is_absolute()
+            && candidate.is_dir()
+            && matches!(is_network_path(&candidate), Ok(false))
+            && require_ntfs(&candidate).is_ok()
+        {
+            return Ok((candidate, Some(requested.to_path_buf())));
+        }
+    }
+    Err(io::Error::other(format!(
+        "暫存根目錄 {} 是網路路徑，隔離引擎（AppContainer）無法存取；請將 MAGICK_TEMPORARY_PATH 設為本機 NTFS 目錄或建立 D:\\ImageMagick-Temp；不自動改用 C 槽",
+        super::display_path(requested)
+    )))
+}
+
+pub(super) fn free_bytes(path: &Path) -> io::Result<u64> {
+    use std::os::windows::ffi::OsStrExt;
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetDiskFreeSpaceExW(
+            path: *const u16,
+            free: *mut u64,
+            total: *mut u64,
+            all_free: *mut u64,
+        ) -> i32;
+    }
+    let canonical = path.canonicalize()?;
+    let wide: Vec<_> = canonical.as_os_str().encode_wide().chain(Some(0)).collect();
+    let mut free = 0;
+    if unsafe {
+        GetDiskFreeSpaceExW(
+            wide.as_ptr(),
+            &mut free,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
+    } == 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(free)
+}
+
+pub(super) fn check_free(path: &Path, needed: u64) -> io::Result<()> {
+    let free = free_bytes(path)?;
+    if free < needed {
+        return Err(io::Error::other(format!(
+            "磁碟空間不足：{} 可用 {} MiB，需要預估 {} MiB（含安全餘裕；不是硬配額）",
+            path.display(),
+            free / 1048576,
+            needed / 1048576
+        )));
+    }
+    Ok(())
+}
+
+pub(super) fn volume(path: &Path) -> io::Result<String> {
+    use std::os::windows::ffi::OsStrExt;
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetVolumePathNameW(path: *const u16, volume: *mut u16, size: u32) -> i32;
+        fn GetVolumeNameForVolumeMountPointW(mount: *const u16, name: *mut u16, size: u32) -> i32;
+    }
+    let canonical = path.canonicalize()?;
+    let path: Vec<_> = canonical.as_os_str().encode_wide().chain(Some(0)).collect();
+    let mut mount = [0u16; 32768];
+    if unsafe { GetVolumePathNameW(path.as_ptr(), mount.as_mut_ptr(), mount.len() as u32) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let mut name = [0u16; 1024];
+    let value = if unsafe {
+        GetVolumeNameForVolumeMountPointW(mount.as_ptr(), name.as_mut_ptr(), name.len() as u32)
+    } != 0
+    {
+        &name[..]
+    } else {
+        &mount[..]
+    }; // SMB 使用 share mount；不把不同 share 當成同一磁碟。
+    Ok(String::from_utf16_lossy(
+        &value[..value.iter().position(|n| *n == 0).unwrap_or(value.len())],
+    )
+    .to_ascii_lowercase())
+}
+
+/// 單一工作的暫存與輸出磁碟需求估算（預留量）。工作的累計寫入上限也以此為準。
+pub(super) fn disk_need(pixels: u64, source_bytes: u64) -> (u64, u64) {
+    let gib: u64 = 1024 * 1024 * 1024;
+    (
+        (8 * gib)
+            .saturating_add(pixels.saturating_mul(48))
+            .saturating_add(source_bytes),
+        pixels.saturating_mul(8).saturating_add(64 * 1024 * 1024),
+    )
+}
+
+pub(super) fn preflight(
+    temp: &Path,
+    output: &Path,
+    pixels: u64,
+    source_bytes: u64,
+    upgrade: Option<&super::instance_ledger::Reservation>,
+) -> io::Result<Vec<super::instance_ledger::Reservation>> {
+    // Q16-HDRI 像素快取、MIFF／驗證資料、原生暫存及受控輸出的保守需求估算。
+    // 2026-11-13：改為跨執行個體預留。同一磁碟區上所有存活工作（含其他 IMB-C 程序）
+    // 的預估量一併扣除，不再重複使用同一份可用空間。這仍是協調紀錄，不是檔案系統硬配額。
+    let (temporary, destination) = disk_need(pixels, source_bytes);
+    // RC2 H3 起輸出先寫入本機受控暫存並在那裡驗證，之後才複製到目的端：
+    // 本機暫存需同時容納輸出副本。
+    preflight_bytes(
+        temp,
+        output,
+        temporary.saturating_add(destination),
+        destination,
+        upgrade,
+    )
+}
+
+const MARGIN: u64 = 2 * 1024 * 1024 * 1024;
+
+/// 以位元組直接指定本機暫存與目的端需求的跨執行個體預留（同一磁碟區時合併計算）。
+/// `upgrade` 為本工作在暫存磁碟區的既有預留：在同一把跨程序表鎖內原子升級，
+/// 計算容量時不重複計入它的原額度（RC2 第三輪）。成功時回傳**新增**的預留；
+/// 升級的那筆仍由呼叫端原本的 `Reservation` 代表。
+pub(super) fn preflight_bytes(
+    temp: &Path,
+    output: &Path,
+    temporary: u64,
+    destination: u64,
+    upgrade: Option<&super::instance_ledger::Reservation>,
+) -> io::Result<Vec<super::instance_ledger::Reservation>> {
+    use super::instance_ledger::Resource;
+    let ledger = super::instance_ledger::global()?;
+    let (temp_volume, output_volume) = (volume(temp)?, volume(output)?);
+    let temp_free = free_bytes(temp)?;
+    let mut requests = Vec::new();
+    let mut paths = Vec::new();
+    if temp_volume == output_volume {
+        requests.push((
+            Resource::Disk(&temp_volume),
+            temporary.saturating_add(destination),
+            temp_free.saturating_sub(MARGIN),
+        ));
+        paths.push((temp, temp_free));
+    } else {
+        let output_free = free_bytes(output)?;
+        requests.push((
+            Resource::Disk(&temp_volume),
+            temporary,
+            temp_free.saturating_sub(MARGIN),
+        ));
+        requests.push((
+            Resource::Disk(&output_volume),
+            destination,
+            output_free.saturating_sub(MARGIN),
+        ));
+        paths.push((temp, temp_free));
+        paths.push((output, output_free));
+    }
+    super::diag(
+        "reserve",
+        format_args!(
+            "upgrade={} {}",
+            upgrade.is_some(),
+            requests
+                .iter()
+                .zip(&paths)
+                .map(|((_, bytes, capacity), (path, _))| format!(
+                    "{}: need={bytes} capacity={capacity}",
+                    path.display()
+                ))
+                .collect::<Vec<_>>()
+                .join("; ")
+        ),
+    );
+    match ledger.reserve_many(upgrade, &requests)? {
+        Ok(reservations) => Ok(reservations),
+        Err((index, held)) => Err(shortage(
+            paths[index].0,
+            paths[index].1,
+            held,
+            requests[index].1,
+        )),
+    }
+}
+
+/// 只預留本機暫存（例如 identify 前的來源副本與引擎暫存上限）。
+pub(super) fn reserve_bytes(
+    temp: &Path,
+    needed: u64,
+) -> io::Result<super::instance_ledger::Reservation> {
+    let ledger = super::instance_ledger::global()?;
+    let free = free_bytes(temp)?;
+    super::diag(
+        "reserve_early",
+        format_args!(
+            "{}: need={needed} capacity={}",
+            temp.display(),
+            free.saturating_sub(MARGIN)
+        ),
+    );
+    match ledger.try_reserve(
+        super::instance_ledger::Resource::Disk(&volume(temp)?),
+        needed,
+        free.saturating_sub(MARGIN),
+    )? {
+        Ok(reservation) => Ok(reservation),
+        Err(held) => Err(shortage(temp, free, held, needed)),
+    }
+}
+
+fn shortage(path: &Path, free: u64, held: u64, needed: u64) -> io::Error {
+    io::Error::other(format!(
+        "磁碟空間不足：{} 可用 {} MiB，其他進行中工作（含其他 IMB-C 執行個體）已預留 {} MiB，本工作預估需要 {} MiB 另加 2 GiB 安全餘裕（預留是協調紀錄，不是硬配額）",
+        path.display(),
+        free / 1048576,
+        held / 1048576,
+        needed / 1048576
+    ))
+}
+
+pub(super) fn native_size(path: &Path) -> io::Result<u64> {
+    let mut size = 0u64;
+    for (i, entry) in fs::read_dir(path)
+        .map_err(|e| {
+            io::Error::new(
+                e.kind(),
+                format!("原生暫存目錄列舉失敗 {}：{e}", path.display()),
+            )
+        })?
+        .enumerate()
+    {
+        if i >= 10000 {
+            return Err(io::Error::other("原生暫存項目過多"));
+        }
+        size = size
+            .checked_add(native_entry_size(entry?)?)
+            .ok_or_else(|| io::Error::other("暫存大小溢位"))?;
+    }
+    Ok(size)
+}
+
+/// 引擎可寫的整棵暫存樹（HOME／TEMP 與 native cache）的檔案大小總和。
+/// AppContainer 下這是引擎唯一可寫的檔案系統位置，因此輪詢涵蓋全部可寫範圍。
+/// 不跟隨重新解析點（只算 0）；硬連結可能重複計數（保守方向）；
+/// 稀疏檔以邏輯大小計（保守方向）。項目數與深度有界，超過即視為異常停止工作。
+pub(super) fn tree_size(path: &Path) -> io::Result<u64> {
+    let mut pending = vec![(path.to_path_buf(), 0u32)];
+    let (mut size, mut entries) = (0u64, 0u32);
+    while let Some((dir, depth)) = pending.pop() {
+        let listing = match fs::read_dir(&dir) {
+            Ok(listing) => listing,
+            // 子目錄可能在列舉間被引擎刪除。
+            Err(e) if e.kind() == io::ErrorKind::NotFound && depth > 0 => continue,
+            Err(e) => {
+                return Err(io::Error::new(
+                    e.kind(),
+                    format!("引擎暫存列舉失敗 {}：{e}", dir.display()),
+                ));
+            }
+        };
+        for entry in listing {
+            entries += 1;
+            if entries > 20000 {
+                return Err(io::Error::other("引擎暫存項目過多"));
+            }
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(e) if e.kind() == io::ErrorKind::NotFound => continue,
+                Err(e) => return Err(e),
+            };
+            let metadata = match entry.metadata() {
+                Ok(m) => m,
+                Err(e) if e.kind() == io::ErrorKind::NotFound => continue,
+                Err(e) => return Err(e),
+            };
+            if metadata.file_attributes() & 0x400 != 0 {
+                continue;
+            }
+            if metadata.is_dir() {
+                if depth >= 16 {
+                    return Err(io::Error::other("引擎暫存目錄層級過深"));
+                }
+                pending.push((entry.path(), depth + 1));
+            } else {
+                // 目錄列舉的大小對「仍開啟寫入中」的檔案會落後（NTFS 關閉後才更新目錄項目），
+                // 實測可讓 256 MiB 寫完才被發現。改以不跟隨連結的開啟查詢即時大小；
+                // 只要求讀取屬性，不受引擎分享模式影響。
+                let live = match fs::symlink_metadata(entry.path()) {
+                    Ok(m) => m.len(),
+                    Err(e) if e.kind() == io::ErrorKind::NotFound => continue,
+                    // delete-pending 等無法開啟的狀態：退回列舉快照，不放過已知大小。
+                    Err(_) => metadata.len(),
+                };
+                size = size
+                    .checked_add(live.max(metadata.len()))
+                    .ok_or_else(|| io::Error::other("暫存大小溢位"))?;
+            }
+        }
+    }
+    Ok(size)
+}
+
+fn native_entry_size(entry: fs::DirEntry) -> io::Result<u64> {
+    let path = entry.path();
+    // Windows 的 DirEntry.metadata 使用同一次列舉的 no-follow 快照，
+    // 不重新開啟可能已被引擎標記刪除的檔名。此處僅觀察用量，
+    // 不作清理授權或硬配額；快照與輪詢仍可能落後實際寫入。
+    let metadata = match entry.metadata() {
+        Ok(m) => m,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(0),
+        Err(e) => {
+            return Err(io::Error::new(
+                e.kind(),
+                format!("原生暫存中繼資料讀取失敗 {}：{e}", path.display()),
+            ));
+        }
+    };
+    if metadata.file_attributes() & 0x400 != 0 || !metadata.is_file() {
+        return Err(io::Error::other(
+            "原生暫存出現非一般檔案，已停止工作並保留安全清理邊界",
+        ));
+    }
+    Ok(metadata.len())
+}
 
 #[cfg(test)]
 mod tests {
@@ -715,7 +1123,7 @@ mod tests {
         release.join().unwrap();
         assert!(!path.exists() && !root.exists());
     }
-    // 實際引擎測試（rukamizugi.psd）觀察到：路徑操作得到錯誤 5 後、狀態查詢前持有者已釋放，
+    // 實際引擎測試觀察到：路徑操作得到錯誤 5 後、狀態查詢前持有者已釋放，
     // 名稱消失。修正前被誤判為失敗並保留空目錄；現在視為刪除已完成。
     #[test]
     fn delete_pending_released_between_failure_and_probe_is_success() {
@@ -773,248 +1181,4 @@ mod tests {
         assert_eq!(std::mem::size_of::<super::ObjectAttributes>(), 48);
         assert_eq!(std::mem::size_of::<super::IoStatus>(), 16);
     }
-}
-impl Drop for ControlledDir {
-    fn drop(&mut self) {
-        let _ = self.cleanup();
-    }
-}
-
-pub(super) const DEFAULT_ROOT: &str = r"D:\ImageMagick-Temp";
-
-pub(super) fn preferred_root() -> io::Result<PathBuf> {
-    let root = std::env::var_os("MAGICK_TEMPORARY_PATH")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(DEFAULT_ROOT));
-    if !root.is_absolute() || !root.is_dir() {
-        return Err(io::Error::other(
-            "ImageMagick 暫存根目錄不存在或不是絕對路徑；請設定 MAGICK_TEMPORARY_PATH 或建立 D:\\ImageMagick-Temp；不自動改用 C 槽",
-        ));
-    }
-    Ok(root)
-}
-
-/// UNC 路徑、網路磁碟機，或解析後指向網路的符號連結。
-/// Low IL 引擎子程序無法存取這些位置（實測 `\\localhost\D$` 回報路徑無效）。
-pub(super) fn is_network_path(path: &Path) -> io::Result<bool> {
-    use std::os::windows::ffi::OsStrExt;
-    use std::path::Prefix;
-    #[link(name = "kernel32")]
-    unsafe extern "system" {
-        fn GetVolumePathNameW(path: *const u16, volume: *mut u16, size: u32) -> i32;
-        fn GetDriveTypeW(root: *const u16) -> u32;
-    }
-    const DRIVE_REMOTE: u32 = 4;
-    let unc = |p: &Path| {
-        matches!(
-            p.components().next(),
-            Some(Component::Prefix(prefix))
-                if matches!(prefix.kind(), Prefix::UNC(..) | Prefix::VerbatimUNC(..))
-        )
-    };
-    if unc(path) {
-        return Ok(true);
-    }
-    let canonical = path.canonicalize()?;
-    if unc(&canonical) {
-        return Ok(true);
-    }
-    let wide: Vec<_> = canonical.as_os_str().encode_wide().chain(Some(0)).collect();
-    let mut mount = [0u16; 32768];
-    if unsafe { GetVolumePathNameW(wide.as_ptr(), mount.as_mut_ptr(), mount.len() as u32) } == 0 {
-        return Err(io::Error::last_os_error());
-    }
-    Ok(unsafe { GetDriveTypeW(mount.as_ptr()) } == DRIVE_REMOTE)
-}
-
-/// 引擎暫存一律放在本機 NTFS。要求的根目錄是網路路徑時，依序改用
-/// `MAGICK_TEMPORARY_PATH`（若為本機）與 `D:\ImageMagick-Temp`；都不可用就回報錯誤，
-/// 不改用 C 槽或系統 TEMP。第二個回傳值是被取代的原要求路徑，呼叫端必須告知使用者。
-pub(super) fn local_engine_root(requested: &Path) -> io::Result<(PathBuf, Option<PathBuf>)> {
-    if !is_network_path(requested)? {
-        return Ok((requested.to_path_buf(), None));
-    }
-    let mut candidates = Vec::new();
-    if let Ok(root) = preferred_root() {
-        candidates.push(root);
-    }
-    candidates.push(PathBuf::from(DEFAULT_ROOT));
-    for candidate in candidates {
-        if candidate.is_absolute()
-            && candidate.is_dir()
-            && matches!(is_network_path(&candidate), Ok(false))
-            && require_ntfs(&candidate).is_ok()
-        {
-            return Ok((candidate, Some(requested.to_path_buf())));
-        }
-    }
-    Err(io::Error::other(format!(
-        "暫存根目錄 {} 是網路路徑，Low IL 引擎無法存取；請將 MAGICK_TEMPORARY_PATH 設為本機 NTFS 目錄或建立 D:\\ImageMagick-Temp；不自動改用 C 槽",
-        super::display_path(requested)
-    )))
-}
-
-pub(super) fn free_bytes(path: &Path) -> io::Result<u64> {
-    use std::os::windows::ffi::OsStrExt;
-    #[link(name = "kernel32")]
-    unsafe extern "system" {
-        fn GetDiskFreeSpaceExW(
-            path: *const u16,
-            free: *mut u64,
-            total: *mut u64,
-            all_free: *mut u64,
-        ) -> i32;
-    }
-    let canonical = path.canonicalize()?;
-    let wide: Vec<_> = canonical.as_os_str().encode_wide().chain(Some(0)).collect();
-    let mut free = 0;
-    if unsafe {
-        GetDiskFreeSpaceExW(
-            wide.as_ptr(),
-            &mut free,
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-        )
-    } == 0
-    {
-        return Err(io::Error::last_os_error());
-    }
-    Ok(free)
-}
-
-pub(super) fn check_free(path: &Path, needed: u64) -> io::Result<()> {
-    let free = free_bytes(path)?;
-    if free < needed {
-        return Err(io::Error::other(format!(
-            "磁碟空間不足：{} 可用 {} MiB，需要預估 {} MiB（含安全餘裕；不是硬配額）",
-            path.display(),
-            free / 1048576,
-            needed / 1048576
-        )));
-    }
-    Ok(())
-}
-
-pub(super) fn volume(path: &Path) -> io::Result<String> {
-    use std::os::windows::ffi::OsStrExt;
-    #[link(name = "kernel32")]
-    unsafe extern "system" {
-        fn GetVolumePathNameW(path: *const u16, volume: *mut u16, size: u32) -> i32;
-        fn GetVolumeNameForVolumeMountPointW(mount: *const u16, name: *mut u16, size: u32) -> i32;
-    }
-    let canonical = path.canonicalize()?;
-    let path: Vec<_> = canonical.as_os_str().encode_wide().chain(Some(0)).collect();
-    let mut mount = [0u16; 32768];
-    if unsafe { GetVolumePathNameW(path.as_ptr(), mount.as_mut_ptr(), mount.len() as u32) } == 0 {
-        return Err(io::Error::last_os_error());
-    }
-    let mut name = [0u16; 1024];
-    let value = if unsafe {
-        GetVolumeNameForVolumeMountPointW(mount.as_ptr(), name.as_mut_ptr(), name.len() as u32)
-    } != 0
-    {
-        &name[..]
-    } else {
-        &mount[..]
-    }; // SMB 使用 share mount；不把不同 share 當成同一磁碟。
-    Ok(String::from_utf16_lossy(
-        &value[..value.iter().position(|n| *n == 0).unwrap_or(value.len())],
-    )
-    .to_ascii_lowercase())
-}
-
-pub(super) fn preflight(
-    temp: &Path,
-    output: &Path,
-    pixels: u64,
-    source_bytes: u64,
-) -> io::Result<Vec<super::instance_ledger::Reservation>> {
-    let gib = 1024 * 1024 * 1024;
-    // Q16-HDRI 像素快取、MIFF／驗證資料、原生暫存及受控輸出的保守需求估算。
-    // 2026-11-13：改為跨執行個體預留。同一磁碟區上所有存活工作（含其他 IMB-C 程序）
-    // 的預估量一併扣除，不再重複使用同一份可用空間。這仍是協調紀錄，不是檔案系統硬配額。
-    let temporary = 8 * gib + pixels.saturating_mul(48) + source_bytes;
-    let destination = pixels.saturating_mul(8) + 64 * 1024 * 1024;
-    let ledger = super::instance_ledger::global()?;
-    let (temp_volume, output_volume) = (volume(temp)?, volume(output)?);
-    if temp_volume == output_volume {
-        Ok(vec![reserve_disk(
-            &ledger,
-            temp,
-            &temp_volume,
-            temporary.saturating_add(destination),
-        )?])
-    } else {
-        let first = reserve_disk(&ledger, temp, &temp_volume, temporary)?;
-        let second = reserve_disk(&ledger, output, &output_volume, destination)?;
-        Ok(vec![first, second])
-    }
-}
-
-fn reserve_disk(
-    ledger: &std::sync::Arc<super::instance_ledger::Ledger>,
-    path: &Path,
-    volume: &str,
-    needed: u64,
-) -> io::Result<super::instance_ledger::Reservation> {
-    let margin = 2 * 1024 * 1024 * 1024;
-    let free = free_bytes(path)?;
-    match ledger.try_reserve(
-        super::instance_ledger::Resource::Disk(volume),
-        needed,
-        free.saturating_sub(margin),
-    )? {
-        Ok(reservation) => Ok(reservation),
-        Err(held) => Err(io::Error::other(format!(
-            "磁碟空間不足：{} 可用 {} MiB，其他進行中工作（含其他 IMB-C 執行個體）已預留 {} MiB，本工作預估需要 {} MiB 另加 2 GiB 安全餘裕（預留是協調紀錄，不是硬配額）",
-            path.display(),
-            free / 1048576,
-            held / 1048576,
-            needed / 1048576
-        ))),
-    }
-}
-
-pub(super) fn native_size(path: &Path) -> io::Result<u64> {
-    let mut size = 0u64;
-    for (i, entry) in fs::read_dir(path)
-        .map_err(|e| {
-            io::Error::new(
-                e.kind(),
-                format!("原生暫存目錄列舉失敗 {}：{e}", path.display()),
-            )
-        })?
-        .enumerate()
-    {
-        if i >= 10000 {
-            return Err(io::Error::other("原生暫存項目過多"));
-        }
-        size = size
-            .checked_add(native_entry_size(entry?)?)
-            .ok_or_else(|| io::Error::other("暫存大小溢位"))?;
-    }
-    Ok(size)
-}
-
-fn native_entry_size(entry: fs::DirEntry) -> io::Result<u64> {
-    let path = entry.path();
-    // Windows 的 DirEntry.metadata 使用同一次列舉的 no-follow 快照，
-    // 不重新開啟可能已被引擎標記刪除的檔名。此處僅觀察用量，
-    // 不作清理授權或硬配額；快照與輪詢仍可能落後實際寫入。
-    let metadata = match entry.metadata() {
-        Ok(m) => m,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(0),
-        Err(e) => {
-            return Err(io::Error::new(
-                e.kind(),
-                format!("原生暫存中繼資料讀取失敗 {}：{e}", path.display()),
-            ));
-        }
-    };
-    if metadata.file_attributes() & 0x400 != 0 || !metadata.is_file() {
-        return Err(io::Error::other(
-            "原生暫存出現非一般檔案，已停止工作並保留安全清理邊界",
-        ));
-    }
-    Ok(metadata.len())
 }

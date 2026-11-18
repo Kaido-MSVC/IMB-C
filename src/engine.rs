@@ -2,10 +2,14 @@
 mod color_diagnostics;
 #[path = "controlled_temp.rs"]
 mod controlled_temp;
+#[path = "destination.rs"]
+mod destination;
 #[path = "engine_limits.rs"]
 mod engine_limits;
 #[path = "engine_memory.rs"]
 mod engine_memory;
+#[path = "filesystem_safety.rs"]
+mod filesystem_safety;
 #[path = "instance_ledger.rs"]
 mod instance_ledger;
 #[path = "low_integrity.rs"]
@@ -13,6 +17,8 @@ mod low_integrity;
 #[cfg(windows)]
 #[path = "process_guard.rs"]
 mod process_guard;
+#[path = "runtime_cache.rs"]
+mod runtime_cache;
 #[cfg(test)]
 thread_local! { static TEST_NATIVE_PEAK: std::cell::Cell<u64> = const { std::cell::Cell::new(0) }; }
 #[cfg(test)]
@@ -25,6 +31,7 @@ thread_local! {
 pub fn localize_color_error(lang: i32, detail: &str) -> String {
     color_diagnostics::localize(lang, detail)
 }
+use destination::{Destination, OutputTemp};
 use std::{
     ffi::OsString,
     fs::File,
@@ -34,9 +41,64 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
     time::{Duration, Instant},
 };
-use tempfile::NamedTempFile;
 
 type Result<T> = std::result::Result<T, String>;
+type ProgressCallback = Box<dyn Fn(u8)>;
+thread_local! { static PROGRESS: std::cell::RefCell<Option<ProgressCallback>> = const { std::cell::RefCell::new(None) }; }
+struct ProgressGuard(Option<ProgressCallback>);
+impl Drop for ProgressGuard {
+    fn drop(&mut self) {
+        PROGRESS.with(|p| *p.borrow_mut() = self.0.take());
+    }
+}
+/// 診斷紀錄（RC2 第三輪 Release 驗收用）：只在設定 `IMBC_DIAG_LOG` 時，把各階段時間點、
+/// 預留量與引擎呼叫耗時附加到該檔案。未設定時完全不寫入；不含圖片內容。
+pub(crate) fn diag(event: &str, detail: impl std::fmt::Display) {
+    static LOG: std::sync::OnceLock<Option<std::sync::Mutex<File>>> = std::sync::OnceLock::new();
+    static START: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+    let start = *START.get_or_init(Instant::now);
+    let log = LOG.get_or_init(|| {
+        std::env::var_os("IMBC_DIAG_LOG").and_then(|path| {
+            std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(path)
+                .ok()
+                .map(std::sync::Mutex::new)
+        })
+    });
+    if let Some(file) = log
+        && let Ok(mut file) = file.lock()
+    {
+        use std::io::Write;
+        let _ = writeln!(
+            file,
+            "{:.3}\t{:?}\t{event}\t{detail}",
+            start.elapsed().as_secs_f64(),
+            std::thread::current().id()
+        );
+    }
+}
+fn stage(value: u8) {
+    PROGRESS.with(|p| {
+        if let Some(callback) = p.borrow().as_ref() {
+            callback(value);
+        }
+    });
+}
+/// 背景工作可訂閱讀取／中繼／編碼／驗證／發布階段（0–4）。
+pub fn convert_with_progress(
+    engine: &Path,
+    input: &Path,
+    dir: &Path,
+    format: Format,
+    options: &Options,
+    cancel: &AtomicBool,
+    callback: impl Fn(u8) + 'static,
+) -> Result<(PathBuf, Verification)> {
+    let _guard = ProgressGuard(PROGRESS.with(|p| p.borrow_mut().replace(Box::new(callback))));
+    convert_with_options(engine, input, dir, format, options, cancel)
+}
 fn err(e: impl std::fmt::Display) -> String {
     plain_error_text(e.to_string())
 }
@@ -92,6 +154,7 @@ pub enum Format {
     Jpeg,
     Avif,
     Psd,
+    Psb,
     Tiff,
     Jxl,
 }
@@ -104,6 +167,7 @@ impl Format {
             4 => Self::Psd,
             5 => Self::Tiff,
             6 => Self::Jxl,
+            7 => Self::Psb,
             _ => Self::Webp,
         }
     }
@@ -114,13 +178,14 @@ impl Format {
             Self::Jpeg => "jpeg:-",
             Self::Avif => "avif:-",
             Self::Psd => "psd:-",
+            Self::Psb => "psb:-",
             Self::Tiff => "tiff:-",
             Self::Jxl => "jxl:-",
         }
     }
     fn input_coder(self) -> &'static str {
         // Read the saved PSD composite, never interpret layer frames as animation.
-        if matches!(self, Self::Psd) {
+        if matches!(self, Self::Psd | Self::Psb) {
             "psd:-[0]"
         } else {
             self.coder()
@@ -133,6 +198,7 @@ impl Format {
             Self::Jpeg => "jpg",
             Self::Avif => "avif",
             Self::Psd => "psd",
+            Self::Psb => "psb",
             Self::Tiff => "tiff",
             Self::Jxl => "jxl",
         }
@@ -150,11 +216,26 @@ impl Format {
             "jpg" | "jpeg" => Ok(Self::Jpeg),
             "avif" => Ok(Self::Avif),
             "psd" => Ok(Self::Psd),
+            "psb" => Ok(Self::Psb),
             "tif" | "tiff" => Ok(Self::Tiff),
             "jxl" => Ok(Self::Jxl),
-            _ => Err("僅支援 WebP、PNG、JPEG、AVIF、PSD、TIFF、JXL；不支援 HEIC/HEIF".into()),
+            _ => Err("僅支援 WebP、PNG、JPEG、AVIF、PSD、PSB、TIFF、JXL；不支援 HEIC/HEIF".into()),
         }
     }
+}
+
+/// GUI／CLI 以靜態 CRT 建置，不需要應用程式目錄內的任何 DLL：動態 DLL 搜尋只允許 System32，
+/// 排除應用程式目錄、目前目錄與 PATH（原生引擎是另一個程序，由 runtime 快取與 AppContainer 控制）。
+pub fn initialize_dll_search() -> std::io::Result<()> {
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn SetDefaultDllDirectories(flags: u32) -> i32;
+    }
+    // LOAD_LIBRARY_SEARCH_SYSTEM32
+    if unsafe { SetDefaultDllDirectories(0x800) } == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
 }
 
 pub fn locate_engine() -> PathBuf {
@@ -165,10 +246,87 @@ pub fn locate_engine() -> PathBuf {
         .unwrap_or_default()
 }
 
+pub fn external_validation_memory_mib() -> u64 {
+    engine_memory::external_ceiling_mib()
+}
+pub struct ExternalProcess {
+    child: low_integrity::Child,
+    job: process_guard::ProcessGuard,
+}
+impl ExternalProcess {
+    #[cfg(test)]
+    pub fn process_handles(&self) -> std::io::Result<Vec<std::os::windows::io::OwnedHandle>> {
+        self.job.process_handles()
+    }
+    pub fn try_wait(&mut self) -> std::io::Result<Option<std::process::ExitStatus>> {
+        self.child.try_wait()
+    }
+    pub fn stop(&self) -> std::io::Result<()> {
+        self.job.stop_and_wait()
+    }
+}
+impl Drop for ExternalProcess {
+    fn drop(&mut self) {
+        let _ = self.job.stop_and_wait();
+    }
+}
+#[cfg(test)]
+pub fn spawn_external_command(
+    exe: &Path,
+    args: &[std::ffi::OsString],
+    stdout: &File,
+    stderr: &File,
+) -> std::io::Result<ExternalProcess> {
+    spawn_external_budgeted(exe, args, stdout, stderr, 1216)
+}
+pub fn spawn_external_budgeted(
+    exe: &Path,
+    args: &[std::ffi::OsString],
+    stdout: &File,
+    stderr: &File,
+    memory_mib: u64,
+) -> std::io::Result<ExternalProcess> {
+    let job = process_guard::ProcessGuard::external_with_memory(memory_mib as usize * 1024 * 1024)?;
+    let child = low_integrity::spawn_regular(exe, args, stdout, stderr, job.handle())?;
+    Ok(ExternalProcess { child, job })
+}
+pub struct ValidationTemp(controlled_temp::ControlledDir);
+impl ValidationTemp {
+    pub fn new() -> std::io::Result<Self> {
+        controlled_temp::ControlledDir::external(&controlled_temp::preferred_root()?).map(Self)
+    }
+    pub fn path(&self) -> &Path {
+        self.0.path()
+    }
+    pub fn retain(&self) {
+        self.0.retain();
+    }
+}
+pub struct ValidationMemory {
+    _lease: engine_memory::Lease,
+}
+pub fn reserve_validation_memory(mib: u64, cancel: &AtomicBool) -> Result<ValidationMemory> {
+    let start = Instant::now();
+    Ok(ValidationMemory {
+        _lease: engine_memory::Lease::external(mib, || {
+            if cancel.load(Ordering::Relaxed) {
+                return Err("未完成（已取消）".into());
+            }
+            if start.elapsed() > Duration::from_secs(120) {
+                return Err("外部驗證等待資源逾時".into());
+            }
+            Ok(())
+        })?,
+    })
+}
+
 /// 啟動時回收已終止 IMB-C 執行個體的殘留（P1-C）：只處理其擁有權日誌中 File ID 相符、
 /// 未被使用的項目，並終止其建立→納管空窗留下的暫停子程序。沒有需要回報的事項時回傳空集合。
 #[allow(dead_code)] // GUI 使用；驗收工具共用 engine.rs
 pub fn recover_stale_temp() -> Vec<String> {
+    // 建立 AppContainer 與恢復子程序之間的極短空窗若崩潰，會留下 profile；
+    // 只回收建立者程序已結束的 IMB-C.Engine.* 項目。不影響執行中的其他執行個體。
+    let profiles = low_integrity::recover_stale_profiles();
     let report = match instance_ledger::global().and_then(|l| l.recover()) {
         Ok(report) => report,
         Err(e) => {
@@ -179,6 +337,12 @@ pub fn recover_stale_temp() -> Vec<String> {
         }
     };
     let mut lines = Vec::new();
+    if !profiles.is_empty() {
+        lines.push(format!(
+            "已回收先前異常結束留下的引擎隔離設定 {} 項",
+            profiles.len()
+        ));
+    }
     if report.removed > 0 || report.orphans > 0 {
         lines.push(format!(
             "已回收先前異常結束留下的暫存 {} 項、暫停子程序 {} 個",
@@ -207,6 +371,9 @@ thread_local! {
     static JOB_CWD: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
     // 跨執行個體磁碟預留：工作結束（Job drop）時釋放。
     static JOB_RESERVATIONS: std::cell::RefCell<Vec<instance_ledger::Reservation>> = const { std::cell::RefCell::new(Vec::new()) };
+    // IMB-C 為本工作產生、須以路徑交給引擎讀取的檔案（目標 ICC 快照）；每次呼叫只對
+    // 該次 AppContainer SID 授權唯讀，工作目錄本身仍不開放。
+    static JOB_ENGINE_READABLE: std::cell::RefCell<Vec<PathBuf>> = const { std::cell::RefCell::new(Vec::new()) };
     static WARNINGS: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 struct Job(
@@ -219,6 +386,7 @@ impl Job {
     }
     fn new_in(requested: &Path) -> Result<Self> {
         WARNINGS.with(|warnings| warnings.borrow_mut().clear());
+        JOB_ENGINE_READABLE.with(|v| v.borrow_mut().clear());
         JOB_IMAGE.with(|v| v.set((0, 16, 4)));
         // Low IL 引擎無法存取 UNC／網路磁碟機；暫存改放本機 NTFS 並明確告知實際路徑。
         // 圖片輸入與輸出仍可在 UNC，由 Rust 控制代碼讀寫。
@@ -227,7 +395,7 @@ impl Job {
         if let Some(original) = redirected {
             WARNINGS.with(|w| {
                 w.borrow_mut().push(format!(
-                    "暫存根目錄 {} 是網路路徑，Low IL 引擎無法存取；本次改用本機受控暫存 {}",
+                    "暫存根目錄 {} 是網路路徑，隔離引擎（AppContainer）無法存取；本次改用本機受控暫存 {}",
                     display_path(&original),
                     display_path(root)
                 ))
@@ -312,7 +480,9 @@ impl Job {
         let warnings = WARNINGS.with(|w| std::mem::take(&mut *w.borrow_mut()));
         match result {
             Ok(value) => Ok((value, warnings)),
-            Err(e) => Err(if warnings.is_empty() {
+            // 取消必須維持精確的「已取消」（M1）：一般提示對已取消的工作沒有意義，不附加。
+            // 暫存保留、清理失敗等異常由 finish 併入錯誤本身，仍會顯示。
+            Err(e) => Err(if warnings.is_empty() || e == "已取消" {
                 e
             } else {
                 format!("{e}；{}", warnings.join("；"))
@@ -331,8 +501,15 @@ impl Drop for Job {
         }
         JOB_STORAGE.with(|j| *j.borrow_mut() = None);
         JOB_CWD.with(|j| *j.borrow_mut() = None);
+        #[cfg(test)]
+        JOB_BUDGET.with(|b| {
+            if let Some(budget) = b.borrow().as_ref() {
+                TEST_LAST_BUDGET.with(|v| v.set(budget.usage()));
+            }
+        });
         JOB_BUDGET.with(|b| *b.borrow_mut() = None);
         JOB_RESERVATIONS.with(|r| r.borrow_mut().clear());
+        JOB_ENGINE_READABLE.with(|v| v.borrow_mut().clear());
     }
 }
 fn cleanup_result<T>(result: Result<T>, cleanup: Result<()>) -> Result<T> {
@@ -378,8 +555,8 @@ fn validate_engine(engine: &Path) -> Result<()> {
     let home = engine.parent().ok_or("引擎路徑無父目錄")?;
     let policy =
         std::fs::read(home.join("policy.xml")).map_err(|e| format!("私有 policy 缺漏：{e}"))?;
-    if policy != include_bytes!("../assets/policy-v13.xml") {
-        return Err("私有 policy 與 v1.3 預期內容不符，請校驗 runtime".into());
+    if policy != include_bytes!("../assets/policy-v14.xml") {
+        return Err("私有 policy 與 v1.4 預期內容不符，請校驗 runtime".into());
     }
     for module in ["miff", "meta", "rgb"] {
         if !home
@@ -422,6 +599,8 @@ fn validate_policy_listing(text: &str, private: &Path) -> Result<()> {
     Ok(())
 }
 fn verify_active_policy(engine: &Path, cancel: &AtomicBool) -> Result<()> {
+    // 生效 policy 應來自實際載入的 runtime 快取副本。
+    let engine = &cached_engine(engine)?;
     let source = job_file()?;
     let mut out = job_file()?;
     run(engine, &["-list", "policy"], &source, &out, cancel)?;
@@ -599,20 +778,30 @@ fn run_with_timeout(
         .map_err(err)?;
     let scratch_path = scratch.path().to_path_buf();
     // 個人資料區可能建立子目錄，與只接受一般檔案的原生快取監測分開。
-    let sandbox =
-        low_integrity::Sandbox::new().map_err(|e| format!("無法建立 Low IL 隔離：{e}"))?;
+    // 每次呼叫獨立 AppContainer；建立失敗即拒絕，不退回只有 Low IL 的模式。
+    let sandbox = low_integrity::Sandbox::new()
+        .map_err(|e| format!("無法建立引擎隔離（AppContainer），未讀取圖片：{e}"))?;
     scratch
         .allow_sandbox(&sandbox)
-        .map_err(|e| format!("無法設定 Low IL 工作目錄：{e}"))?;
+        .map_err(|e| format!("無法設定引擎隔離工作目錄：{e}"))?;
+    for path in JOB_ENGINE_READABLE.with(|v| v.borrow().clone()) {
+        match sandbox.grant_file_read(&path) {
+            Ok(()) => {}
+            // 快照已在前一階段刪除：沒有可授權的對象。
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(format!("無法授權引擎讀取 {}：{e}", display_path(&path))),
+        }
+    }
     let native = scratch.child("imb-c-cache-").map_err(err)?;
     native
         .allow_sandbox(&sandbox)
-        .map_err(|e| format!("無法設定 Low IL 快取目錄：{e}"))?;
+        .map_err(|e| format!("無法設定引擎隔離快取目錄：{e}"))?;
     controlled_temp::check_free(&scratch_path, 2 * 1024 * 1024 * 1024).map_err(err)?;
     let mut invocation = Invocation {
         scratch: Some(scratch),
         stopped: true,
     };
+    let invoked = Instant::now();
     let result = run_child(
         engine,
         args,
@@ -624,6 +813,21 @@ fn run_with_timeout(
         &scratch_path,
         &mut invocation.stopped,
         &sandbox,
+    );
+    diag(
+        "engine",
+        format_args!(
+            "{} {:.3}s ok={} args={}",
+            engine.file_name().unwrap_or_default().to_string_lossy(),
+            invoked.elapsed().as_secs_f64(),
+            result.is_ok(),
+            args.iter()
+                .filter(|a| a.ends_with(":-") || a.starts_with('-') && a.len() < 3)
+                .take(4)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(" ")
+        ),
     );
     let scratch = invocation.scratch.take().unwrap();
     if !invocation.stopped {
@@ -654,6 +858,11 @@ fn run_with_timeout(
     )
 }
 
+/// 引擎一律從已驗證、已鎖定的 runtime 快取啟動（不修改 Portable 目錄 ACL）。
+fn cached_engine(engine: &Path) -> Result<PathBuf> {
+    runtime_cache::resolve(engine)
+        .map_err(|e| format!("無法準備引擎 runtime 快取，未讀取圖片：{e}"))
+}
 #[allow(clippy::too_many_arguments)]
 fn run_child(
     engine: &Path,
@@ -668,6 +877,14 @@ fn run_child(
     sandbox: &low_integrity::Sandbox,
 ) -> Result<()> {
     let stderr = job_file()?;
+    let engine = &cached_engine(engine)?;
+    #[cfg(test)]
+    TEST_ENGINE_INPUTS.with(|v| {
+        v.borrow_mut().push(
+            filesystem_safety::final_path(source)
+                .unwrap_or_else(|e| PathBuf::from(format!("ERR {e}"))),
+        )
+    });
     if engine
         .file_name()
         .is_some_and(|n| n.eq_ignore_ascii_case("magick.exe"))
@@ -720,7 +937,7 @@ fn run_child(
         || check_job(cancel),
     )?;
     #[cfg(windows)]
-    let guard = process_guard::ProcessGuard::with_memory_limit(memory.0)
+    let guard = process_guard::ProcessGuard::engine(memory.0)
         .map_err(|e| format!("無法建立子程序資源防護：{e}"))?;
     // 啟動錯誤先確認整個 Job；只有停止狀態未知才保留 Low 暫存。
     *stopped = false;
@@ -783,12 +1000,16 @@ fn run_child(
         let result = (|| {
             let started = Instant::now();
             let mut native_peak = 0u64;
-            let mut disk_check = Instant::now();
             loop {
                 let resource_error = (|| {
-                    let size = controlled_temp::native_size(scratch).map_err(err)?;
-                    if size > 8 * 1024 * 1024 * 1024 {
-                        return Err("原生暫存觀察用量超過 8 GiB，未保存輸出".to_owned());
+                    // native cache 仍要求只含一般檔案；用量以引擎唯一可寫的整棵暫存樹計算。
+                    controlled_temp::native_size(scratch).map_err(err)?;
+                    let size = controlled_temp::tree_size(profile).map_err(err)?;
+                    if size > engine_limits::scratch_limit() {
+                        return Err(format!(
+                            "引擎暫存觀察用量超過 {} MiB，未保存輸出",
+                            engine_limits::scratch_limit() / (1024 * 1024)
+                        ));
                     }
                     if size > native_peak {
                         budget.reserve(size - native_peak).map_err(err)?;
@@ -811,11 +1032,8 @@ fn run_child(
                             ));
                         }
                     }
-                    if disk_check.elapsed() >= Duration::from_millis(250) {
-                        controlled_temp::check_free(scratch, 2 * 1024 * 1024 * 1024)
-                            .map_err(err)?;
-                        disk_check = Instant::now();
-                    }
+                    // 每次輪詢（約 40 ms）都檢查暫存磁碟區剩餘空間，縮小超量寫入窗口。
+                    controlled_temp::check_free(scratch, 2 * 1024 * 1024 * 1024).map_err(err)?;
                     Ok::<(), String>(())
                 })()
                 .err();
@@ -911,20 +1129,48 @@ fn run_child(
             .map_err(|secondary| format!("{e}；stderr 診斷定位失敗：{secondary}"))?;
         let mut detail = Vec::new();
         stderr
-            .take(4096)
+            .take(engine_limits::STDERR_LIMIT)
             .read_to_end(&mut detail)
             .map_err(|secondary| format!("{e}；stderr 診斷讀取失敗：{secondary}"))?;
-        let detail = String::from_utf8_lossy(&detail);
+        let detail = diagnostic_text(&String::from_utf8_lossy(&detail));
         return Err(if detail.trim().is_empty() {
             e
         } else {
-            format!("{e}：{}", detail.trim())
+            format!("{e}：{}", detail.chars().take(4096).collect::<String>())
         });
     }
     Ok(())
 }
 
 // 先記錄程序樹確認結果，再收回兩個執行緒；任何一個 panic 都不能略過另一個 join。
+fn diagnostic_text(stderr: &str) -> String {
+    const START: &str =
+        "IMB-C distribution: linked LGPL libraries (not a Microsoft Runtime license):";
+    const END: &str = "Full authors, corresponding source and replacement instructions: ../THIRD-PARTY-RUNTIME.txt and ../LGPL-REPLACEMENT.md.";
+    let lines: Vec<_> = stderr.lines().collect();
+    if lines.first().copied() == Some(START)
+        && let Some(end) = lines.iter().take(20).position(|l| *l == END)
+    {
+        let legal_prefixes = [
+            "GLib ",
+            "FriBidi ",
+            "GLib/FriBidi:",
+            "liblqr ",
+            "GPL v3:",
+            "libheif ",
+            "License/source/build and replacement:",
+            "libaom ",
+        ];
+        if lines[1..end]
+            .iter()
+            .all(|line| legal_prefixes.iter().any(|p| line.starts_with(p)))
+        {
+            return lines[end + 1..].join("\n").trim().to_owned();
+        }
+    }
+    stderr.trim().to_owned()
+}
+
 fn finish_child_io(
     stopped: &mut bool,
     result: Result<()>,
@@ -1058,9 +1304,79 @@ fn copy_bytes(
         source.read_exact(&mut buffer[..n]).map_err(err)?;
         write_job_bytes(target, &buffer[..n])?;
         count -= n as u64;
+        #[cfg(test)]
+        TEST_COPY_HOOK.with(|hook| {
+            if let Some(hook) = hook.borrow_mut().as_mut() {
+                hook(n as u64);
+            }
+        });
     }
     Ok(())
 }
+// 測試：每寫完一個複製區塊後呼叫（模擬已寫入部分資料後取消、中斷）。
+#[cfg(test)]
+type CopyHook = Option<Box<dyn FnMut(u64)>>;
+#[cfg(test)]
+thread_local! { static TEST_COPY_HOOK: std::cell::RefCell<CopyHook> = const { std::cell::RefCell::new(None) }; }
+
+/// 以「只共享讀取」開啟來源：轉檔期間其他程序無法以寫入權限開啟，避免同長度的並行修改
+/// 讓引擎讀到與複製／驗證不同的內容。來源正被寫入時明確拒絕。
+fn open_source(input: &Path) -> Result<File> {
+    use std::os::windows::fs::OpenOptionsExt;
+    std::fs::OpenOptions::new()
+        .read(true)
+        .share_mode(1)
+        .open(input)
+        .map_err(|e| {
+            if e.raw_os_error() == Some(32) {
+                "來源正被其他程式寫入或鎖定，未轉檔；請關閉該程式後再試".to_owned()
+            } else {
+                format!("開啟來源失敗：{e}")
+            }
+        })
+}
+/// 複製失敗的錯誤文字；取消必須保持精確的「已取消」，GUI／CLI／JSON 才能正確分類（M1）。
+fn copy_failure(context: &str, e: String) -> String {
+    if e == "已取消" {
+        e
+    } else {
+        format!("{context}：{e}")
+    }
+}
+/// 來源不在本機 NTFS（FAT／exFAT、ReFS、SMB 等）時，從已開啟的控制代碼複製到
+/// 本工作的受控暫存（本機 NTFS，DACL 未授權引擎 AppContainer），引擎只拿到副本的
+/// 唯讀控制代碼。遠端與能力都由同一控制代碼判定；只讀原控制代碼、不以路徑重新開啟。
+/// 複製期間來源長度改變即拒絕。無法判定本機能力時由 `check` 拒絕。
+fn isolated_source(mut source: File, cancel: &AtomicBool) -> Result<File> {
+    match filesystem_safety::check(&source).map_err(err)? {
+        filesystem_safety::Protection::LocalNtfs => Ok(source),
+        filesystem_safety::Protection::CopyFirst(filesystem) => {
+            let len = source.metadata().map_err(err)?.len();
+            // 本機暫存已由呼叫端在複製與 identify 前預留（見 convert_with_options_inner）。
+            let mut copy = job_file()?;
+            source.seek(SeekFrom::Start(0)).map_err(err)?;
+            copy_bytes(&mut source, &mut copy, len, cancel)
+                .map_err(|e| copy_failure(&format!("來源（{filesystem}）複製到受控暫存失敗"), e))?;
+            let mut extra = [0u8; 1];
+            if source.read(&mut extra).map_err(err)? != 0
+                || source.metadata().map_err(err)?.len() != len
+            {
+                return Err("來源在複製到受控暫存期間改變，未轉檔".into());
+            }
+            copy.seek(SeekFrom::Start(0)).map_err(err)?;
+            #[cfg(test)]
+            TEST_SOURCE_COPIES.with(|v| v.set(v.get() + 1));
+            Ok(copy)
+        }
+    }
+}
+#[cfg(test)]
+thread_local! { static TEST_LAST_BUDGET: std::cell::Cell<(u64, u64)> = const { std::cell::Cell::new((0, 0)) }; }
+#[cfg(test)]
+thread_local! { static TEST_SOURCE_COPIES: std::cell::Cell<u32> = const { std::cell::Cell::new(0) }; }
+// 每次引擎呼叫的 stdin 控制代碼實際路徑（H3：引擎拿到的檔案只能是受控暫存或本機 NTFS 來源）。
+#[cfg(test)]
+thread_local! { static TEST_ENGINE_INPUTS: std::cell::RefCell<Vec<PathBuf>> = const { std::cell::RefCell::new(Vec::new()) }; }
 
 fn write_job_bytes(target: &mut File, bytes: &[u8]) -> Result<()> {
     use std::io::Write;
@@ -1139,7 +1455,7 @@ fn png_color_chunks(file: &mut File) -> Result<(Option<[u8; 4]>, bool)> {
     }
 }
 
-/// 目的地 `.tmp*` 的擁有權日誌項目（P1-C）。宣告於 NamedTempFile 之前，使其較晚 drop：
+/// 目的地 `.tmp*` 的擁有權日誌項目（P1-C）。宣告於 OutputTemp 之前，使其較晚 drop：
 /// 檔案先刪除或發布，項目才釋放。崩潰時留下的項目由下次啟動以 File ID 核對後回收。
 /// 檔案系統不提供可靠 File ID（部分 SMB／NAS）時不記錄：只會漏收，不會誤刪。
 struct TempRecord(Option<instance_ledger::Entry>);
@@ -1147,7 +1463,7 @@ impl TempRecord {
     fn none() -> Self {
         Self(None)
     }
-    fn record(temp: &NamedTempFile) -> Result<Self> {
+    fn record(temp: &OutputTemp) -> Result<Self> {
         let ledger = instance_ledger::global().map_err(err)?;
         Ok(Self(
             ledger
@@ -1155,39 +1471,126 @@ impl TempRecord {
                 .ok(),
         ))
     }
-}
-impl Drop for TempRecord {
-    fn drop(&mut self) {
-        if let Some(entry) = self.0.take() {
+    /// 只有確定已發布或刪除，才從日誌釋放項目。其他退出路徑保留證據。
+    fn release(self) {
+        if let Some(entry) = self.0 {
             entry.release();
         }
     }
 }
 
+/// 以同一目的目錄控制代碼不覆寫發布；同名已存在時改用「名稱 (n)」。
 fn publish(
-    mut temp: NamedTempFile,
-    dir: &Path,
+    temp: &mut OutputTemp,
+    destination: &Destination,
     stem: &std::ffi::OsStr,
     format: Format,
+    cancel: &AtomicBool,
 ) -> Result<PathBuf> {
     temp.as_file().sync_all().map_err(err)?;
     for index in 0..10000 {
-        check_job(&AtomicBool::new(false))?;
+        // 每次嘗試發布前都檢查真實取消旗標與期限（第三輪：原本固定為 false）。
+        check_job(cancel)?;
         let mut name = OsString::from(stem);
         if index > 0 {
             name.push(format!(" ({index})"));
         }
         name.push(format!(".{}", format.extension()));
-        let target = dir.join(name);
-        match temp.persist_noclobber(&target) {
-            Ok(_) => return Ok(target),
-            Err(e) if e.error.kind() == std::io::ErrorKind::AlreadyExists => {
-                temp = e.file;
-            }
-            Err(e) => return Err(err(e.error)),
+        match temp.persist_noclobber(destination, &name) {
+            Ok(target) => return Ok(target),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(e) => return Err(err(e)),
         }
     }
     Err("同名檔案過多，無法產生唯一名稱".into())
+}
+
+/// 將已在本機受控暫存完成驗證的輸出交付到目的端（H3／M2）：
+/// 引擎從未取得目的端控制代碼；IMB-C 以目的目錄控制代碼相對建立暫存、寫入、讀回比對
+/// SHA-256，確認與已驗證的位元組一致後才不覆寫發布。任何失敗都以控制代碼刪除暫存，
+/// 刪除失敗（SMB 中斷等）會回報並保留擁有權紀錄（File ID）給下次啟動安全回收。
+fn deliver(
+    local: &mut File,
+    destination: &Destination,
+    stem: &std::ffi::OsStr,
+    format: Format,
+    cancel: &AtomicBool,
+) -> Result<PathBuf> {
+    let length = local.metadata().map_err(err)?.len();
+    if length == 0 {
+        return Err("輸出為空".into());
+    }
+    let free = destination
+        .free_bytes()
+        .map_err(|e| format!("無法確認輸出磁碟剩餘空間：{e}"))?;
+    let needed = length.saturating_add(256 * 1024 * 1024);
+    if free < needed {
+        return Err(format!(
+            "輸出磁碟空間不足：{} 可用 {} MiB，寫入輸出需要約 {} MiB（含安全餘裕；不是硬配額），未保存輸出",
+            display_path(destination.path()),
+            free / 1048576,
+            needed / 1048576
+        ));
+    }
+    let verified = sha256_cancellable(local, cancel)?;
+    diag(
+        "deliver_hashed",
+        format_args!("bytes={length} destination_free={free}"),
+    );
+    let mut record = TempRecord::none();
+    let mut temp = destination
+        .create_temp()
+        .map_err(|e| format!("無法在輸出目錄建立暫存：{e}"))?;
+    let staged = (|| {
+        record = TempRecord::record(&temp)?;
+        local.seek(SeekFrom::Start(0)).map_err(err)?;
+        copy_bytes(local, temp.as_file_mut(), length, cancel)
+            .map_err(|e| copy_failure("寫入輸出暫存失敗", e))?;
+        temp.as_file().sync_all().map_err(err)?;
+        if sha256_cancellable(temp.as_file_mut(), cancel)? != verified {
+            return Err("輸出暫存與已驗證內容不一致，未保存輸出".into());
+        }
+        if cancel.load(Ordering::Relaxed) {
+            return Err("已取消".into());
+        }
+        diag("deliver_written", "");
+        publish(&mut temp, destination, stem, format, cancel)
+    })();
+    diag("deliver_done", format_args!("ok={}", staged.is_ok()));
+    match staged {
+        Ok(path) => {
+            record.release();
+            Ok(path)
+        }
+        Err(error) => {
+            let location = display_path(temp.path());
+            match temp.discard() {
+                Ok(()) => {
+                    record.release();
+                    Err(error)
+                }
+                Err(e) => {
+                    // 不釋放擁有權紀錄：下次啟動以 File ID 核對後回收，不依名稱刪除。
+                    let tracked = record.0.is_some();
+                    Err(format!(
+                        "{error}；輸出暫存 {location} 無法刪除（{e}），未發布；{}",
+                        if tracked {
+                            "已保留其擁有權紀錄，下次啟動時核對檔案身分後回收"
+                        } else {
+                            "此位置未提供可靠的檔案身分，無法自動回收，請確認後手動刪除"
+                        }
+                    ))
+                }
+            }
+        }
+    }
+}
+/// 本機暫存的預先預留（例如 identify 前就要寫入的來源副本）；工作結束時釋放。
+fn reserve_job_temp(bytes: u64) -> Result<()> {
+    let reservation = controlled_temp::reserve_bytes(&job_dir(), bytes)
+        .map_err(|e| format!("磁碟資源預檢失敗：{e}"))?;
+    JOB_RESERVATIONS.with(|r| r.borrow_mut().push(reservation));
+    Ok(())
 }
 
 fn image_stage_error(stage: &str, detail: String) -> String {
@@ -1223,14 +1626,22 @@ fn image_stage_error(stage: &str, detail: String) -> String {
 
 #[derive(Clone, Debug)]
 pub struct Options {
+    pub lossy_quality: u8,
     pub avif_quality: u8,
+    pub avif_lossless: bool,
+    pub jxl_quality: u8,
+    pub jxl_lossless: bool,
     pub webp_lossless: bool,
     pub target_icc: Option<PathBuf>,
 }
 impl Default for Options {
     fn default() -> Self {
         Self {
+            lossy_quality: 90,
             avif_quality: 90,
+            avif_lossless: false,
+            jxl_quality: 90,
+            jxl_lossless: true,
             webp_lossless: true,
             target_icc: None,
         }
@@ -1239,6 +1650,8 @@ impl Default for Options {
 
 #[derive(Debug)]
 pub struct Verification {
+    pub lossless_requested: bool,
+    pub composite_decoded: bool,
     pub exact: bool,
     pub max_error: f64,
     pub rmse: f64,
@@ -1255,6 +1668,16 @@ impl std::fmt::Display for Verification {
         // Build the line from fields and skip empty ones, so no stray separators appear.
         // Plain words instead of "✓": the GUI font may render the glyph as blank space.
         let fields = [
+            (if self.lossless_requested
+                && !self.transformed
+                && !self.composite_decoded
+                && self.input_depth == self.output_depth
+            {
+                "lossless mode"
+            } else {
+                "lossy / composite mode"
+            })
+            .to_owned(),
             (if self.exact {
                 "pixels exact"
             } else {
@@ -1274,6 +1697,12 @@ impl std::fmt::Display for Verification {
             format!("RMSE={:.6}", self.rmse),
             (if self.transformed {
                 "compared after requested color/background conversion"
+            } else {
+                ""
+            })
+            .to_owned(),
+            (if self.composite_decoded {
+                "compared after composite Alpha decoding; original composite samples not verified"
             } else {
                 ""
             })
@@ -1367,6 +1796,66 @@ fn icc_model(profile: &mut File) -> Result<[u8; 4]> {
     }
     profile.seek(SeekFrom::Start(0)).map_err(err)?;
     Ok(header[16..20].try_into().unwrap())
+}
+
+// ICC v4 cicp tag provides explicit primaries/transfer. Arbitrary ICC curves
+// cannot be mapped to CICP without color science; keep them unspecified instead.
+fn icc_cicp(profile: &mut File) -> Result<(u8, u8)> {
+    let len = profile.metadata().map_err(err)?.len();
+    profile.seek(SeekFrom::Start(128)).map_err(err)?;
+    let mut count = [0u8; 4];
+    profile.read_exact(&mut count).map_err(err)?;
+    let count = u64::from(u32::from_be_bytes(count));
+    if count > 65536 || 132 + count * 12 > len {
+        return Err("ICC 標籤表長度無效".into());
+    }
+    for _ in 0..count {
+        let mut tag = [0u8; 12];
+        profile.read_exact(&mut tag).map_err(err)?;
+        if &tag[..4] == b"cicp" {
+            let offset = u64::from(u32::from_be_bytes(tag[4..8].try_into().unwrap()));
+            let size = u64::from(u32::from_be_bytes(tag[8..].try_into().unwrap()));
+            if size < 12 || offset < 132 + count * 12 || offset + size > len {
+                return Err("ICC CICP 標籤長度無效".into());
+            }
+            profile.seek(SeekFrom::Start(offset)).map_err(err)?;
+            let mut data = [0u8; 12];
+            profile.read_exact(&mut data).map_err(err)?;
+            if &data[..4] != b"cicp" {
+                return Err("ICC CICP 標籤型別無效".into());
+            }
+            return Ok((data[8], data[9]));
+        }
+    }
+    Ok((2, 2))
+}
+
+fn png_lossless_primaries_transfer(source: &mut File) -> Result<(u8, u8)> {
+    // png_profile_hint already validated the complete chunk boundaries.
+    source.seek(SeekFrom::Start(8)).map_err(err)?;
+    let mut explicit_color = false;
+    let mut srgb = false;
+    loop {
+        let mut header = [0u8; 8];
+        source.read_exact(&mut header).map_err(err)?;
+        let size = u32::from_be_bytes(header[..4].try_into().unwrap());
+        match &header[4..] {
+            b"sRGB" => srgb = true,
+            b"cHRM" | b"gAMA" => explicit_color = true,
+            b"IEND" => break,
+            _ => {}
+        }
+        source
+            .seek(SeekFrom::Current(i64::from(size) + 4))
+            .map_err(err)?;
+    }
+    if srgb {
+        Ok((1, 13))
+    } else if explicit_color {
+        Err("AVIF 真無損無法確認此 PNG 的 cHRM／gAMA 對應色彩資訊；請使用嵌入正確 ICC 的來源或 PNG／TIFF／JXL".into())
+    } else {
+        Ok((2, 2))
+    }
 }
 
 fn metadata(
@@ -1501,6 +1990,34 @@ fn sample_error(
     Ok((exact, maximum, (sum / expected.max(1) as f64).sqrt()))
 }
 
+fn verify_alpha_samples(a: &mut File, b: &mut File, depth: u32, cancel: &AtomicBool) -> Result<()> {
+    a.seek(SeekFrom::Start(0)).map_err(err)?;
+    b.seek(SeekFrom::Start(0)).map_err(err)?;
+    let stride = if depth == 32 { 16 } else { 8 };
+    let sample = stride / 4;
+    let mut aa = [0u8; 65536];
+    let mut bb = [0u8; 65536];
+    loop {
+        check_job(cancel)?;
+        let n = a.read(&mut aa).map_err(err)?;
+        if n == 0 {
+            return Ok(());
+        }
+        b.read_exact(&mut bb[..n]).map_err(err)?;
+        if n % stride != 0 {
+            return Err("Alpha 驗證資料長度無效".into());
+        }
+        for (x, y) in aa[..n]
+            .chunks_exact(stride)
+            .zip(bb[..n].chunks_exact(stride))
+        {
+            if x[stride - sample..] != y[stride - sample..] {
+                return Err("JXL 有損輸出的 Alpha 改變，未保存輸出".into());
+            }
+        }
+    }
+}
+
 #[allow(dead_code)]
 pub fn convert(
     engine: &Path,
@@ -1549,19 +2066,33 @@ fn convert_with_options_inner(
         return Err("已取消".into());
     }
     validate_engine(engine)?;
-    verify_active_policy(engine, cancel)?;
+    stage(0);
     let input_format = Format::input(input)?;
-    let mut source = File::open(input).map_err(|e| format!("開啟來源失敗：{e}"))?;
+    let source = open_source(input)?;
+    // 目的目錄只以路徑開啟一次並固定；之後的能力、空間、暫存與發布都用同一控制代碼。
+    // 輸出由 IMB-C 寫入；無法判定能力的磁碟區拒絕。
+    let destination = Destination::open(dir).map_err(err)?;
     if !source.metadata().map_err(err)?.is_file() {
         return Err("來源不是一般檔案".into());
     }
-    if matches!(input_format, Format::Psd) {
+    // H1：寫入任何資料前先跨執行個體預留本機暫存——來源副本（非本機 NTFS 時）與 identify
+    // 階段引擎可用的暫存上限。完整預留（含像素估算）的最低需求本來就包含這兩項，
+    // 因此不會提高合法轉檔的門檻。
+    reserve_job_temp(
+        engine_limits::scratch_limit().saturating_add(source.metadata().map_err(err)?.len()),
+    )?;
+    diag("job_start", display_path(input));
+    let mut source = isolated_source(source, cancel)?;
+    diag("source_ready", "");
+    verify_active_policy(engine, cancel)?;
+    diag("policy_verified", "");
+    if matches!(input_format, Format::Psd | Format::Psb) {
         let mut header = [0; 6];
         source
             .read_exact(&mut header)
             .map_err(|e| format!("PSD 檔頭截斷：{e}"))?;
-        if &header != b"8BPS\0\x01" {
-            return Err("僅支援 PSD v1，不支援 PSB 或無效 PSD".into());
+        if &header[..4] != b"8BPS" || !matches!(&header[4..], [0, 1] | [0, 2]) {
+            return Err("僅支援 PSD v1／PSB v2；Photoshop 檔頭無效或版本不支援".into());
         }
         if let Some(compatible) = psd_compatible_source(&mut source, cancel)? {
             source = compatible;
@@ -1615,27 +2146,99 @@ fn convert_with_options_inner(
     }
     let channels = channels as u64;
     JOB_IMAGE.with(|v| v.set((width.saturating_mul(height), depth, channels)));
+    diag(
+        "identified",
+        format_args!("{width}x{height} depth={depth} channels={channels}"),
+    );
     if width.saturating_mul(height) > 400_000_000 {
         return Err("圖片超過 400 MP（4 億像素）上限".into());
     }
+    // 把 identify 前的早期預留在同一把跨程序鎖內原子升級為完整預留：
+    // 不出現未預留空窗，也不把同一工作的兩筆額度重複計入（RC2 第三輪）。
+    let early = JOB_RESERVATIONS.with(|r| r.borrow_mut().pop());
     let reservations = controlled_temp::preflight(
         &job_dir(),
-        dir,
+        destination.path(),
         width.saturating_mul(height),
         source.metadata().map_err(err)?.len(),
-    )
-    .map_err(|e| format!("磁碟資源預檢失敗：{e}"))?;
+        early.as_ref(),
+    );
+    // 升級失敗時早期預留維持原狀，仍由本工作持有到結束。
+    JOB_RESERVATIONS.with(|r| r.borrow_mut().extend(early));
+    let reservations = reservations.map_err(|e| format!("磁碟資源預檢失敗：{e}"))?;
     JOB_RESERVATIONS.with(|r| r.borrow_mut().extend(reservations));
+    diag("reserved_full", "");
+    // 2026-11-18 曾嘗試把累計寫入上限降到本工作的磁碟預留量，但累計量包含已刪除的中介檔，
+    // 實測使合法的 100 MP AVIF 轉檔失敗，因此維持固定 32 GiB 上限（見 v1.4-rc2-appcontainer.md）。
     if matches!(format, Format::Psd) && (width > 30000 || height > 30000) {
-        return Err("PSD 尺寸上限為每邊 30000 像素；不輸出 PSB".into());
+        return Err("PSD 尺寸上限為每邊 30000 像素；請明確選擇 PSB，仍受既有資源上限限制".into());
     }
     if !(1..=100).contains(&options.avif_quality) {
         return Err("AVIF 品質須為 1–100".into());
     }
+    if matches!(format, Format::Avif)
+        && options.avif_lossless
+        && fields[4].to_ascii_lowercase().starts_with("cmyk")
+    {
+        return Err("AVIF 真無損不支援 CMYK；請保留原檔並選擇能保留原樣本與 ICC 的格式，或明確選擇色彩轉換及有損模式".into());
+    }
+    if matches!(format, Format::Avif)
+        && options.avif_lossless
+        && fields[4].to_ascii_lowercase().starts_with("gray")
+    {
+        return Err("AVIF 真無損目前僅支援 8-bit RGB／RGBA；此灰階路徑的編碼器不支援 identity matrix，請選 PNG／TIFF／JXL".into());
+    }
+    if !(1..=100).contains(&options.jxl_quality) {
+        return Err("JXL 品質須為 1–100".into());
+    }
+    if !(1..=100).contains(&options.lossy_quality) {
+        return Err("有損品質須為 1–100".into());
+    }
+    if !options.jxl_lossless && options.jxl_quality == 100 && matches!(format, Format::Jxl) {
+        return Err("JXL 有損品質須為 1–99；品質 100 請明確選擇無損模式".into());
+    }
+    // PSD/PSB composite pixels are matted against white by the writer.
+    // Even an opaque Alpha channel changes the declared Alpha semantics.
+    let mut source_alpha = fields[4].to_ascii_lowercase().ends_with('a');
     let (input_depth, source_icc, _, _) =
         metadata(engine, input_format.input_coder(), &mut source, cancel)?;
+    if matches!(input_format, Format::Tiff) && matches!(format, Format::Psd | Format::Psb) {
+        // TIFF 的 ping 可能未建立 Alpha trait，不能據此放行 Photoshop 輸出。
+        source.seek(SeekFrom::Start(0)).map_err(err)?;
+        let mut channels = job_file()?;
+        run(
+            engine,
+            &[
+                "identify",
+                "-format",
+                "%[channels]",
+                input_format.input_coder(),
+            ],
+            &source,
+            &channels,
+            cancel,
+        )?;
+        channels.seek(SeekFrom::Start(0)).map_err(err)?;
+        let mut text = String::new();
+        channels.take(256).read_to_string(&mut text).map_err(err)?;
+        let model = text
+            .split_whitespace()
+            .next()
+            .ok_or("無法確認 TIFF Alpha 通道")?;
+        source_alpha = model.to_ascii_lowercase().ends_with('a');
+    }
+    if matches!(input_format, Format::Psd | Format::Psb) && source_alpha {
+        WARNINGS.with(|w|w.borrow_mut().push("PSD／PSB 合成 Alpha 經解碼器反混合；比對解碼後樣本，不代表原始合成影像的樣本與 Alpha 語意無損".into()));
+    }
+    if matches!(format, Format::Psd | Format::Psb) && source_alpha {
+        return Err(
+            "PSD／PSB 合成影像的半透明 RGB 會與白色混合，不能無損保留 Alpha；請選 PNG／TIFF／JXL"
+                .into(),
+        );
+    }
     let mut source_profile_hash = None;
     let mut effective_icc_model = None;
+    let mut source_cicp = (2, 2);
     if source_icc {
         let mut profile = extracted(
             engine,
@@ -1647,6 +2250,9 @@ fn convert_with_options_inner(
         )?;
         effective_icc_model = Some(icc_model(&mut profile)?);
         source_profile_hash = Some(sha256(&mut profile)?);
+        if options.avif_lossless && matches!(format, Format::Avif) {
+            source_cicp = icc_cicp(&mut profile)?;
+        }
     }
     // JXL exposes a decoder ICC representation, not proof that ICC bytes were
     // embedded. The bundled coder discards this provenance flag. Keep its color
@@ -1660,6 +2266,14 @@ fn convert_with_options_inner(
     }
     let mut color_missing = false;
     let mut avif_output_cicp = String::from("heic:cicp=1/13/6/1");
+    let mut lossless_pt = source_cicp;
+    if !source_icc && options.avif_lossless && matches!(format, Format::Avif) {
+        lossless_pt = match input_format {
+            Format::Png => png_lossless_primaries_transfer(&mut source)?,
+            Format::Webp => (1, 13),
+            _ => (2, 2),
+        };
+    }
     // CICP-only HDR/wide-gamut AVIF has no ICC for the proven preservation path.
     // Refuse rather than silently relabeling PQ/HLG samples as sRGB.
     if matches!(input_format, Format::Avif) && !source_icc {
@@ -1681,11 +2295,12 @@ fn convert_with_options_inner(
         out.seek(SeekFrom::Start(0)).map_err(err)?;
         let mut text = String::new();
         out.take(256).read_to_string(&mut text).map_err(err)?;
-        if text.trim().is_empty() {
+        if text.trim().is_empty() || text.trim() == "2/2/0/1" {
             color_missing = true;
         } else {
             validate_avif_cicp(&text)?;
             let transfer = text.trim().split('/').nth(1).ok_or("CICP transfer 缺漏")?;
+            lossless_pt = (1, transfer.parse().map_err(err)?);
             avif_output_cicp = format!("heic:cicp=1/{transfer}/6/1");
         }
     }
@@ -1695,9 +2310,6 @@ fn convert_with_options_inner(
     if input_depth > 16 && !matches!(format, Format::Jxl | Format::Tiff) {
         return Err("超過 16-bit／浮點來源請使用 JXL 或 TIFF，避免靜默截斷精度".into());
     }
-    let destination = dir
-        .canonicalize()
-        .map_err(|e| format!("輸出目錄解析失敗：{e}"))?;
     let mut intermediate = job_file()?;
     source.seek(SeekFrom::Start(0)).map_err(err)?;
     let mut args: Vec<String> = [
@@ -1756,6 +2368,7 @@ fn convert_with_options_inner(
         write_job_bytes(profile.as_file_mut(), &data)?;
         effective_icc_model = Some(data[16..20].try_into().unwrap());
         target_profile_hash = Some(sha256(profile.as_file_mut())?);
+        JOB_ENGINE_READABLE.with(|v| v.borrow_mut().push(profile.path().to_owned()));
         args.extend([
             "-profile".into(),
             profile
@@ -1779,7 +2392,7 @@ fn convert_with_options_inner(
             ["-background", "white", "-alpha", "remove", "-alpha", "off"].map(String::from),
         );
     }
-    if matches!(format, Format::Psd) {
+    if matches!(format, Format::Psd | Format::Psb) {
         args.extend(["+profile", "8bim"].map(String::from));
     }
     args.extend(
@@ -1795,6 +2408,8 @@ fn convert_with_options_inner(
         ]
         .map(String::from),
     );
+    stage(1);
+    diag("intermediate_start", "");
     invoke(engine, &args, &source, &intermediate, cancel)
         .map_err(|e| image_stage_error("圖片轉換 (convert)／高精度中繼", e))?;
     let (_, intermediate_icc, expected_width, expected_height) =
@@ -1813,10 +2428,8 @@ fn convert_with_options_inner(
         return Err("中繼輸出為空".into());
     }
     intermediate.seek(SeekFrom::Start(0)).map_err(err)?;
-    #[allow(unused_assignments)] // 只為 drop 順序先宣告
-    let mut _temp_record = TempRecord::none();
-    let mut temp = NamedTempFile::new_in(&destination).map_err(err)?;
-    _temp_record = TempRecord::record(&temp)?;
+    // 輸出先寫入本機受控暫存；驗證完成前引擎與目的端互不接觸（H3）。
+    let mut output = job_file()?;
     // ICC conversion can produce fractional samples from 8-bit input.
     // Quantize only to 16-bit for formats that support it, matching verification.
     let depth = if input_depth > 16 {
@@ -1825,16 +2438,39 @@ fn convert_with_options_inner(
         || (options.target_icc.is_some()
             && matches!(
                 format,
-                Format::Png | Format::Tiff | Format::Jxl | Format::Psd
+                Format::Png | Format::Tiff | Format::Jxl | Format::Psd | Format::Psb
             ))
-        || (matches!(input_format, Format::Psd)
+        || (matches!(input_format, Format::Psd | Format::Psb)
+            && source_alpha
             && matches!(format, Format::Png | Format::Tiff | Format::Jxl))
     {
         "16"
     } else {
         "8"
     };
-    let q = options.avif_quality.to_string();
+    let q = if options.avif_lossless {
+        100
+    } else {
+        options.avif_quality
+    }
+    .to_string();
+    let jxl_q = options.jxl_quality.to_string();
+    let lossy_q = options.lossy_quality.to_string();
+    if options.avif_lossless && matches!(format, Format::Avif) {
+        if input_depth > 8 || options.target_icc.is_some() {
+            return Err(
+                "AVIF 真無損目前只接受 8-bit 且未套用 ICC 轉換的來源；高位深請使用 PNG／TIFF／JXL"
+                    .into(),
+            );
+        }
+        // ICC remains authoritative. Unspecified P/T avoids falsely relabeling
+        // arbitrary ICC profiles as sRGB; matrix/range are always explicit.
+        avif_output_cicp = format!("heic:cicp={}/{}/0/1", lossless_pt.0, lossless_pt.1);
+        if !source_icc && lossless_pt == (2, 2) {
+            color_missing = true;
+            WARNINGS.with(|w|w.borrow_mut().push("來源未提供可確認的色彩描述；AVIF 保持未指定 primaries／transfer，不將未知色彩標成 sRGB".into()));
+        }
+    }
     let mut args = vec![
         "-limit", "thread", "1", "-limit", "memory", "256MiB", "-limit", "map", "512MiB", "-limit",
         "disk", "8GiB", "miff:-", "-depth", depth,
@@ -1843,7 +2479,7 @@ fn convert_with_options_inner(
         args.extend(["-define", "quantum:format=floating-point"]);
     }
     if matches!(format, Format::Jpeg) {
-        args.extend(["-quality", "90"]);
+        args.extend(["-quality", &lossy_q]);
     }
     if matches!(format, Format::Webp) {
         if options.webp_lossless {
@@ -1856,14 +2492,14 @@ fn convert_with_options_inner(
                 "webp:exact=true",
             ]);
         } else {
-            args.extend(["-quality", "90", "-define", "webp:lossless=false"]);
+            args.extend(["-quality", &lossy_q, "-define", "webp:lossless=false"]);
         }
     }
     if matches!(format, Format::Avif) {
         // The bundled encoder otherwise omits nclx for ordinary unprofiled SDR.
         // Record its existing sRGB/BT.601 full-range encoding explicitly, so our
         // own output also satisfies the strict CICP-only input validation.
-        if !source_icc && !color_missing {
+        if options.avif_lossless || (!source_icc && !color_missing) {
             args.extend(["-define", &avif_output_cicp]);
         }
         args.extend([
@@ -1890,19 +2526,30 @@ fn convert_with_options_inner(
         args.extend(["-compress", "Zip", "-define", "tiff:alpha=unassociated"]);
     }
     if matches!(format, Format::Jxl) {
-        args.extend(["-define", "jxl:distance=0", "-quality", "100"]);
+        if options.jxl_lossless {
+            args.extend(["-define", "jxl:distance=0", "-quality", "100"]);
+        } else {
+            args.extend(["-quality", &jxl_q]);
+        }
     }
-    if matches!(format, Format::Psd) {
-        args.extend(["-define", "psd:write-layers=true"]);
+    if matches!(format, Format::Psd | Format::Psb) {
+        args.extend(["-define", "psd:write-layers=true", "-compress", "RLE"]);
     }
     args.push(format.coder());
-    run(engine, &args, &intermediate, temp.as_file(), cancel)
+    stage(2);
+    diag("encode_start", "");
+    run(engine, &args, &intermediate, &output, cancel)
         .map_err(|e| image_stage_error("圖片轉換 (convert)", e))?;
-    if temp.as_file().metadata().map_err(err)?.len() == 0 {
+    if output.metadata().map_err(err)?.len() == 0 {
         return Err("轉換輸出為空".into());
     }
+    stage(3);
+    diag(
+        "verify_start",
+        format_args!("output_bytes={}", output.metadata().map_or(0, |m| m.len())),
+    );
     let (output_depth, output_icc, output_width, output_height) =
-        metadata(engine, format.input_coder(), temp.as_file_mut(), cancel)?;
+        metadata(engine, format.input_coder(), &mut output, cancel)?;
     if (output_width, output_height) != (expected_width, expected_height) {
         return Err("驗證輸出寬高不符，未保存輸出".into());
     }
@@ -1932,16 +2579,13 @@ fn convert_with_options_inner(
         });
     }
     if expected_icc {
-        let mut b = extracted(
-            engine,
-            format.input_coder(),
-            temp.as_file_mut(),
-            "icc",
-            16,
-            cancel,
-        )?;
+        let mut b = extracted(engine, format.input_coder(), &mut output, "icc", 16, cancel)?;
         if Some(sha256(&mut b)?) != expected_profile_hash {
-            return Err("ICC 描述檔不一致，未保存輸出".into());
+            return Err(if matches!(format, Format::Jxl) && !options.jxl_lossless {
+                "JXL 有損編碼器無法原樣保留此 ICC，未保存輸出；請改用 JXL 無損或 PNG／TIFF".into()
+            } else {
+                "ICC 描述檔不一致，未保存輸出".into()
+            });
         }
     }
     let check_depth = if input_depth > 16 { 32 } else { 16 };
@@ -1956,7 +2600,7 @@ fn convert_with_options_inner(
     let mut b = extracted(
         engine,
         format.input_coder(),
-        temp.as_file_mut(),
+        &mut output,
         "rgba",
         check_depth,
         cancel,
@@ -1968,7 +2612,17 @@ fn convert_with_options_inner(
         expected_width * expected_height * 4,
         cancel,
     )?;
-    let lossless = matches!(format, Format::Png | Format::Tiff | Format::Jxl)
+    if matches!(format, Format::Jxl) && !options.jxl_lossless {
+        verify_alpha_samples(&mut a, &mut b, check_depth, cancel)?;
+        if output_depth != depth.parse::<u32>().map_err(err)? {
+            return Err("JXL 有損輸出位深不符，未保存輸出".into());
+        }
+    }
+    let lossless = matches!(
+        format,
+        Format::Png | Format::Tiff | Format::Psd | Format::Psb
+    ) || (matches!(format, Format::Jxl) && options.jxl_lossless)
+        || (matches!(format, Format::Avif) && options.avif_lossless)
         || (matches!(format, Format::Webp) && options.webp_lossless);
     if lossless && !exact {
         if matches!(format, Format::Webp)
@@ -1986,15 +2640,20 @@ fn convert_with_options_inner(
         return Err("已取消".into());
     }
     check_job(cancel)?;
-    let result = publish(
-        temp,
+    stage(4);
+    diag("deliver_start", "");
+    let result = deliver(
+        &mut output,
         &destination,
         input.file_stem().ok_or("來源檔名無效")?,
         format,
+        cancel,
     )?;
     Ok((
         result,
         Verification {
+            lossless_requested: lossless,
+            composite_decoded: matches!(input_format, Format::Psd | Format::Psb) && source_alpha,
             exact,
             max_error,
             rmse,
@@ -2005,7 +2664,7 @@ fn convert_with_options_inner(
             color_verified: expected_icc,
             color_missing,
             warnings: if color_missing {
-                vec!["來源 AVIF 缺少 ICC／CICP；沿用解碼器行為完成轉檔，僅驗證樣本數值，未驗證色域／傳輸特性；請保留原檔".into()]
+                vec!["來源缺少可確認的 ICC／CICP；沿用解碼器行為完成轉檔，僅驗證樣本數值，未驗證色域／傳輸特性；請保留原檔".into()]
             } else {
                 Vec::new()
             },
@@ -2014,12 +2673,15 @@ fn convert_with_options_inner(
 }
 
 pub fn sha256(file: &mut File) -> Result<String> {
+    sha256_cancellable(file, &AtomicBool::new(false))
+}
+fn sha256_cancellable(file: &mut File, cancel: &AtomicBool) -> Result<String> {
     use sha2::{Digest, Sha256};
     file.seek(SeekFrom::Start(0)).map_err(err)?;
     let mut hash = Sha256::new();
     let mut buffer = [0u8; 65536];
     loop {
-        check_job(&AtomicBool::new(false))?;
+        check_job(cancel)?;
         let count = file.read(&mut buffer).map_err(err)?;
         if count == 0 {
             break;
@@ -2089,19 +2751,33 @@ fn jpeg_reconstruction_inner(
     if (wrap && ext != "jpg" && ext != "jpeg") || (!wrap && ext != "jxl") {
         return Err("此工具僅接受 JPEG → JXL 封裝或 JXL → 原始 JPEG 還原".into());
     }
-    let mut source = job_file()?;
-    let mut original = File::open(input).map_err(err)?;
+    let mut original = open_source(input)?;
+    // 此流程一律先把來源複製到受控暫存，cjxl／djxl 只拿到副本；
+    // 這裡只拒絕無法判定能力的磁碟區。
+    filesystem_safety::check(&original).map_err(err)?;
+    let destination = Destination::open(dir).map_err(err)?;
     let length = original.metadata().map_err(err)?.len();
     if length > engine_limits::OUTPUT_LIMIT {
         return Err("JPEG ↔ JXL 來源副本超過 16 GiB 上限".into());
     }
-    copy_bytes(&mut original, &mut source, length, cancel)?;
+    // H1：寫入前先跨執行個體預留。本機暫存同時存放來源副本、本機輸出與（封裝時）還原驗證檔；
+    // 目的端只放最終輸出。JPEG 重新封裝通常比原檔小，還原結果與原檔等長，預留取 4 倍與 2 倍。
+    let mib64 = 64 * 1024 * 1024;
+    let reservations = controlled_temp::preflight_bytes(
+        &job_dir(),
+        destination.path(),
+        length.saturating_mul(4).saturating_add(mib64),
+        length.saturating_mul(2).saturating_add(mib64),
+        None,
+    )
+    .map_err(|e| format!("磁碟資源預檢失敗：{e}"))?;
+    JOB_RESERVATIONS.with(|r| r.borrow_mut().extend(reservations));
+    let mut source = job_file()?;
+    copy_bytes(&mut original, &mut source, length, cancel)
+        .map_err(|e| copy_failure("來源複製到受控暫存失敗", e))?;
     source.seek(SeekFrom::Start(0)).map_err(err)?;
-    let destination = dir.canonicalize().map_err(err)?;
-    #[allow(unused_assignments)] // 只為 drop 順序先宣告
-    let mut _output_record = TempRecord::none();
-    let mut output = NamedTempFile::new_in(&destination).map_err(err)?;
-    _output_record = TempRecord::record(&output)?;
+    // 輸出與往返驗證都使用本機受控暫存；cjxl／djxl 從不取得目的端控制代碼（H3）。
+    let mut output = job_file()?;
     let cjxl = tools.join("cjxl.exe");
     let djxl = tools.join("djxl.exe");
     let hash;
@@ -2120,10 +2796,10 @@ fn jpeg_reconstruction_inner(
                 "--num_threads=1",
             ],
             &source,
-            output.as_file(),
+            &output,
             cancel,
         )?;
-        output.as_file_mut().seek(SeekFrom::Start(0)).map_err(err)?;
+        output.seek(SeekFrom::Start(0)).map_err(err)?;
         let mut restored = job_file()?;
         run(
             &djxl,
@@ -2134,7 +2810,7 @@ fn jpeg_reconstruction_inner(
                 "--reconstruct_jpeg",
                 "--num_threads=1",
             ],
-            output.as_file(),
+            &output,
             &restored,
             cancel,
         )?;
@@ -2153,10 +2829,10 @@ fn jpeg_reconstruction_inner(
                 "--num_threads=1",
             ],
             &source,
-            output.as_file(),
+            &output,
             cancel,
         )?;
-        hash = sha256(output.as_file_mut())?;
+        hash = sha256(&mut output)?;
         if let Some(path) = reference {
             if sha256(&mut File::open(path).map_err(err)?)? != hash {
                 return Err("與參考 JPEG 的 SHA-256 不一致，未保存輸出".into());
@@ -2166,18 +2842,19 @@ fn jpeg_reconstruction_inner(
             verified = false;
         }
     }
-    if output.as_file().metadata().map_err(err)?.len() == 0 {
+    if output.metadata().map_err(err)?.len() == 0 {
         return Err("輸出為空".into());
     }
     if cancel.load(Ordering::Relaxed) {
         return Err("已取消".into());
     }
     check_job(cancel)?;
-    let result = publish(
-        output,
+    let result = deliver(
+        &mut output,
         &destination,
         input.file_stem().ok_or("來源檔名無效")?,
         if wrap { Format::Jxl } else { Format::Jpeg },
+        cancel,
     )?;
     Ok((result, hash, verified))
 }
@@ -2188,8 +2865,27 @@ mod tests {
     use std::{fs, io::Write};
 
     #[test]
+    fn legal_prologue_is_separated_but_diagnostics_are_retained() {
+        let start = "IMB-C distribution: linked LGPL libraries (not a Microsoft Runtime license):";
+        let end = "Full authors, corresponding source and replacement instructions: ../THIRD-PARTY-RUNTIME.txt and ../LGPL-REPLACEMENT.md.";
+        let raw = format!(
+            "{start}\r\nGLib license details\r\n{end}\r\nmagick.exe: actual decode error\r\n"
+        );
+        assert_eq!(diagnostic_text(&raw), "magick.exe: actual decode error");
+        assert_eq!(
+            diagnostic_text("unknown license warning\nactual error"),
+            "unknown license warning\nactual error"
+        );
+        assert_eq!(
+            diagnostic_text(&format!("{start}\ntruncated banner")),
+            format!("{start}\ntruncated banner")
+        );
+    }
+    #[test]
     fn verification_line_skips_empty_fields() {
         let base = || Verification {
+            lossless_requested: false,
+            composite_decoded: false,
             exact: false,
             max_error: 0.5,
             rmse: 0.25,
@@ -2205,7 +2901,7 @@ mod tests {
         let preserved = line(base());
         assert_eq!(
             preserved,
-            "pixels changed; 8→8 bit; ICC preserved; max=0.500000; RMSE=0.250000"
+            "lossy / composite mode; pixels changed; 8→8 bit; ICC preserved; max=0.500000; RMSE=0.250000"
         );
         let untagged = line(Verification {
             exact: true,
@@ -2216,7 +2912,7 @@ mod tests {
         });
         assert_eq!(
             untagged,
-            "pixels exact; 8→8 bit; ICC untagged; max=0.500000; RMSE=0.250000; color information not verified"
+            "lossy / composite mode; pixels exact; 8→8 bit; ICC untagged; max=0.500000; RMSE=0.250000; color information not verified"
         );
         let converted = line(Verification {
             color_verified: false,
@@ -2225,7 +2921,7 @@ mod tests {
             ..base()
         });
         assert!(converted.starts_with(
-            "pixels changed; 8→8 bit; ICC present, not verified; max=0.500000; RMSE=0.250000; compared after requested color/background conversion\n  警告：w"
+            "lossy / composite mode; pixels changed; 8→8 bit; ICC present, not verified; max=0.500000; RMSE=0.250000; compared after requested color/background conversion\n  警告：w"
         ));
         for text in [preserved, untagged, converted] {
             let first = text.lines().next().unwrap();
@@ -2241,12 +2937,12 @@ mod tests {
             v.extend(id.to_be_bytes());
             v.push(name.len() as u8);
             v.extend(name);
-            if (name.len() + 1) % 2 != 0 {
+            if !(name.len() + 1).is_multiple_of(2) {
                 v.push(0);
             }
             v.extend((data.len() as u32).to_be_bytes());
             v.extend(data);
-            if data.len() % 2 != 0 {
+            if !data.len().is_multiple_of(2) {
                 v.push(0);
             }
             v
@@ -2340,7 +3036,7 @@ mod tests {
         assert!(validate_engine(&engine).unwrap_err().contains("policy"));
         fs::write(
             dir.path().join("policy.xml"),
-            include_bytes!("../assets/policy-v13.xml"),
+            include_bytes!("../assets/policy-v14.xml"),
         )
         .unwrap();
         assert!(validate_engine(&engine).unwrap_err().contains("coder"));
@@ -2413,26 +3109,26 @@ mod tests {
     fn total_deadline_includes_multiple_child_stages() {
         let job = Job::new().unwrap();
         let root = job_dir();
-        let shell = PathBuf::from(std::env::var_os("SystemRoot").unwrap())
-            .join("System32/WindowsPowerShell/v1.0/powershell.exe");
-        let input = job_file().unwrap();
+        use super::regression_security::{ENGINE_FIXTURE, fixture_exe, fixture_input};
+        let exe = fixture_exe();
+        let (short, long) = (fixture_input("sleep 500\n"), fixture_input("sleep 5000\n"));
         let output = job_file().unwrap();
         let off = AtomicBool::new(false);
         // Each child has a 10-second allowance, but they share a 3-second job deadline.
         JOB.with(|j| j.borrow_mut().as_mut().unwrap().1 = Instant::now() + Duration::from_secs(3));
         run_with_timeout(
-            &shell,
-            &["-NoProfile", "-Command", "Start-Sleep -Milliseconds 500"],
-            &input,
+            &exe,
+            &ENGINE_FIXTURE,
+            &short,
             &output,
             &off,
             Duration::from_secs(10),
         )
         .unwrap();
         let e = run_with_timeout(
-            &shell,
-            &["-NoProfile", "-Command", "Start-Sleep -Seconds 5"],
-            &input,
+            &exe,
+            &ENGINE_FIXTURE,
+            &long,
             &output,
             &off,
             Duration::from_secs(10),
@@ -2440,11 +3136,11 @@ mod tests {
         .unwrap_err();
         assert!(e.contains("總期限"), "{e}");
         assert!(
-            run(&shell, &[], &input, &output, &off)
+            run(&exe, &ENGINE_FIXTURE, &short, &output, &off)
                 .unwrap_err()
                 .contains("總期限")
         );
-        drop((input, output));
+        drop((short, long, output));
         job.finish(Ok(())).unwrap();
         assert!(!root.exists());
     }
@@ -2517,17 +3213,21 @@ mod tests {
         assert_eq!(fs::read_dir(&special).unwrap().count(), 0);
     }
     #[test]
-    #[ignore = "Read-only real PSD sample; set IMBC_TEST_ENGINE and IMBC_TEST_ASSETS"]
+    #[ignore = "Read-only real PSD sample; set IMBC_TEST_ENGINE and IMBC_TEST_PSD"]
     fn real_csp_psd_conversion_and_source_preservation() {
-        let Some(assets) = std::env::var_os("IMBC_TEST_ASSETS") else {
+        let Some(input) = std::env::var_os("IMBC_TEST_PSD")
+            .map(PathBuf::from)
+            .or_else(|| {
+                std::env::var_os("IMBC_TEST_ASSETS").map(|p| PathBuf::from(p).join("source.psd"))
+            })
+        else {
             eprintln!(
                 "skipped real_csp_psd_conversion_and_source_preservation: \
-                 set IMBC_TEST_ASSETS to the folder containing rukamizugi.psd"
+                 set IMBC_TEST_PSD to a read-only PSD sample"
             );
             return;
         };
         let engine = PathBuf::from(std::env::var_os("IMBC_TEST_ENGINE").unwrap());
-        let input = PathBuf::from(assets).join("rukamizugi.psd");
         let mut f = File::open(&input).unwrap();
         let before = sha256(&mut f).unwrap();
         let dir = tempfile::tempdir().unwrap();
@@ -2812,7 +3512,14 @@ mod tests {
             Format::Tiff,
             Format::Jxl,
         ] {
-            let converted = convert(&engine, &source, dir.path(), format, &off).unwrap();
+            let count = fs::read_dir(dir.path()).unwrap().count();
+            let result = convert(&engine, &source, dir.path(), format, &off);
+            if matches!(format, Format::Psd) {
+                assert!(result.unwrap_err().contains("Alpha"));
+                assert_eq!(fs::read_dir(dir.path()).unwrap().count(), count);
+                continue;
+            }
+            let converted = result.unwrap();
             let restored = convert(&engine, &converted, dir.path(), Format::Png, &off).unwrap();
             assert!(fs::metadata(restored).unwrap().len() > 0);
         }
@@ -2849,7 +3556,7 @@ mod tests {
     }
     #[test]
     fn heic_and_heif_are_rejected_before_engine_launch() {
-        for ext in ["heic", "HEIF", "psb"] {
+        for ext in ["heic", "HEIF"] {
             assert!(Format::input(Path::new(&format!("image.{ext}"))).is_err());
         }
     }
@@ -2862,28 +3569,27 @@ mod tests {
             .unwrap();
         let sentinel = peer.path().join("magick-do-not-delete");
         fs::write(&sentinel, b"unrelated data").unwrap();
-        let shell = PathBuf::from(std::env::var_os("SystemRoot").unwrap())
-            .join("System32/WindowsPowerShell/v1.0/powershell.exe");
+        use super::regression_security::{ENGINE_FIXTURE, fixture_exe, fixture_input};
         let parent_temp = std::env::var_os("TEMP");
         for mode in ["success", "failure", "cancel", "timeout"] {
-            let input = tempfile::tempfile().unwrap();
-            let mut output = tempfile::tempfile().unwrap();
-            let cancel = AtomicBool::new(false);
             let action = match mode {
                 "success" => "exit 0",
                 "failure" => "exit 7",
-                _ => "Start-Sleep -Seconds 30",
+                _ => "sleep 30000",
             };
-            let script = format!(
-                "$ErrorActionPreference='Stop'; if ($env:TEMP -ne $env:MAGICK_TEMPORARY_PATH -or $env:TMP -ne $env:TEMP) {{ throw 'temp mismatch' }}; [IO.File]::WriteAllText((Join-Path $env:TEMP 'magick-fixture'),'private image'); [Console]::Out.WriteLine($env:TEMP); [Console]::Out.Flush(); {action}"
-            );
+            let input = fixture_input(&format!("scratch\n{action}\n"));
+            let out_dir = tempfile::tempdir().unwrap();
+            let output = tempfile::NamedTempFile::new_in(out_dir.path()).unwrap();
+            let cancel = AtomicBool::new(false);
             let result = std::thread::scope(|scope| {
                 if mode == "cancel" {
-                    let observed = output.try_clone().unwrap();
+                    let observed = output.path().to_owned();
                     let cancel = &cancel;
                     scope.spawn(move || {
                         let start = Instant::now();
-                        while observed.metadata().unwrap().len() == 0
+                        while !fs::read_to_string(&observed)
+                            .unwrap_or_default()
+                            .contains("TEMP_DENIED=")
                             && start.elapsed() < Duration::from_secs(8)
                         {
                             std::thread::sleep(Duration::from_millis(20));
@@ -2892,10 +3598,10 @@ mod tests {
                     });
                 }
                 run_with_timeout(
-                    &shell,
-                    &["-NoProfile", "-NonInteractive", "-Command", &script],
+                    &fixture_exe(),
+                    &ENGINE_FIXTURE,
                     &input,
-                    &output,
+                    output.as_file(),
                     &cancel,
                     if mode == "timeout" {
                         Duration::from_secs(3)
@@ -2904,14 +3610,18 @@ mod tests {
                     },
                 )
             });
-            output.seek(SeekFrom::Start(0)).unwrap();
-            let mut recorded = String::new();
-            output.read_to_string(&mut recorded).unwrap();
-            let scratch = PathBuf::from(recorded.trim());
+            let recorded = fs::read_to_string(output.path()).unwrap();
+            let scratch = recorded
+                .lines()
+                .find_map(|l| l.strip_prefix("SCRATCH="))
+                .map(PathBuf::from)
+                .unwrap_or_default();
             assert!(
                 scratch.is_absolute(),
-                "child did not reach scratch fixture: {mode}: {result:?}"
+                "child did not reach scratch fixture: {mode}: {result:?}: {recorded}"
             );
+            // AppContainer 的 TEMP 被 Windows 改寫到已刪除的 profile，引擎不能寫入。
+            assert!(recorded.contains("TEMP_DENIED=true"), "{mode}: {recorded}");
             assert!(
                 !scratch.exists(),
                 "scratch left after {mode}: {}",
@@ -2930,9 +3640,17 @@ mod tests {
             for _ in 0..8 {
                 let p = dir.path();
                 s.spawn(move || {
-                    let mut t = NamedTempFile::new_in(p).unwrap();
-                    t.write_all(b"new").unwrap();
-                    publish(t, p, std::ffi::OsStr::new("image"), Format::Png).unwrap();
+                    let destination = Destination::open(p).unwrap();
+                    let mut t = destination.create_temp().unwrap();
+                    t.as_file_mut().write_all(b"new").unwrap();
+                    publish(
+                        &mut t,
+                        &destination,
+                        std::ffi::OsStr::new("image"),
+                        Format::Png,
+                        &AtomicBool::new(false),
+                    )
+                    .unwrap();
                 });
             }
         });
@@ -2959,10 +3677,8 @@ mod tests {
     #[test]
     fn active_cancellation_terminates_child() {
         let cancel = AtomicBool::new(false);
-        let input = tempfile::tempfile().unwrap();
         let output = tempfile::tempfile().unwrap();
-        let shell = PathBuf::from(std::env::var_os("SystemRoot").unwrap())
-            .join("System32/WindowsPowerShell/v1.0/powershell.exe");
+        let input = super::regression_security::fixture_input("sleep 30000\n");
         let started = Instant::now();
         std::thread::scope(|scope| {
             scope.spawn(|| {
@@ -2971,13 +3687,8 @@ mod tests {
             });
             assert!(
                 run(
-                    &shell,
-                    &[
-                        "-NoProfile",
-                        "-NonInteractive",
-                        "-Command",
-                        "Start-Sleep -Seconds 30"
-                    ],
+                    &super::regression_security::fixture_exe(),
+                    &super::regression_security::ENGINE_FIXTURE,
                     &input,
                     &output,
                     &cancel
@@ -3046,7 +3757,14 @@ mod tests {
             Format::Psd,
             Format::Jpeg,
         ] {
-            let file = convert(&engine, &alpha, dir.path(), format, &off).unwrap();
+            let count = fs::read_dir(dir.path()).unwrap().count();
+            let result = convert(&engine, &alpha, dir.path(), format, &off);
+            if matches!(format, Format::Psd) {
+                assert!(result.unwrap_err().contains("Alpha"));
+                assert_eq!(fs::read_dir(dir.path()).unwrap().count(), count);
+                continue;
+            }
+            let file = result.unwrap();
             let raster = convert(&engine, &file, dir.path(), Format::Png, &off).unwrap();
             let p = pixel(&engine, &raster);
             if matches!(format, Format::Jpeg) {
@@ -3083,7 +3801,14 @@ mod tests {
         let original = fs::read(&seed).unwrap();
         let mut sources = vec![seed.clone()];
         for format in [Format::Webp, Format::Jpeg, Format::Avif, Format::Psd] {
-            sources.push(convert(&engine, &seed, dir.path(), format, &off).unwrap());
+            let count = fs::read_dir(dir.path()).unwrap().count();
+            let result = convert(&engine, &seed, dir.path(), format, &off);
+            if matches!(format, Format::Psd) {
+                assert!(result.unwrap_err().contains("Alpha"));
+                assert_eq!(fs::read_dir(dir.path()).unwrap().count(), count);
+            } else {
+                sources.push(result.unwrap());
+            }
         }
         for source in sources {
             let bytes = fs::read(&source).unwrap();
@@ -3094,7 +3819,14 @@ mod tests {
                 Format::Avif,
                 Format::Psd,
             ] {
-                let output = convert(&engine, &source, dir.path(), format, &off).unwrap();
+                let count = fs::read_dir(dir.path()).unwrap().count();
+                let result = convert(&engine, &source, dir.path(), format, &off);
+                if matches!(format, Format::Psd) && source.extension().unwrap() != "jpg" {
+                    assert!(result.unwrap_err().contains("Alpha"));
+                    assert_eq!(fs::read_dir(dir.path()).unwrap().count(), count);
+                    continue;
+                }
+                let output = result.unwrap();
                 assert_ne!(source, output);
                 assert!(fs::metadata(&output).unwrap().len() > 0);
                 let result = inspect(&engine)
@@ -3119,6 +3851,7 @@ mod tests {
                             Format::Jpeg => "JPEG",
                             Format::Avif => "AVIF",
                             Format::Psd => "PSD",
+                            Format::Psb => "PSB",
                             Format::Tiff => "TIFF",
                             Format::Jxl => "JXL",
                         }
@@ -3182,3 +3915,11 @@ mod regression_lowil_review;
 #[cfg(test)]
 #[path = "regression_security.rs"]
 mod regression_security;
+
+#[cfg(test)]
+#[path = "regression_v14.rs"]
+mod regression_v14;
+
+#[cfg(test)]
+#[path = "regression_rc3.rs"]
+mod regression_rc3;

@@ -10,6 +10,11 @@ pub struct Preferences {
     pub source_folder: PathBuf,
     pub output_folder: PathBuf,
     pub avif_quality: i32,
+    pub avif_lossless: bool,
+    pub jxl_quality: i32,
+    pub jxl_lossless: bool,
+    pub iat_path: PathBuf,
+    pub iat_enabled: bool,
     pub webp_lossless: bool,
     pub notify: bool,
 }
@@ -22,6 +27,11 @@ impl Default for Preferences {
             source_folder: PathBuf::new(),
             output_folder: PathBuf::new(),
             avif_quality: 90,
+            avif_lossless: false,
+            jxl_quality: 90,
+            jxl_lossless: true,
+            iat_path: PathBuf::new(),
+            iat_enabled: false,
             webp_lossless: true,
             notify: true,
         }
@@ -37,13 +47,35 @@ pub fn path() -> std::io::Result<PathBuf> {
     Ok(base.join("preferences.ini"))
 }
 fn hex(path: &Path) -> String {
-    path.to_string_lossy()
-        .as_bytes()
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
+    use std::os::windows::ffi::OsStrExt;
+    format!(
+        "w16:{}",
+        path.as_os_str()
+            .encode_wide()
+            .map(|c| format!("{c:04x}"))
+            .collect::<String>()
+    )
 }
 fn unhex(s: &str) -> PathBuf {
+    use std::os::windows::ffi::OsStringExt;
+    if let Some(s) = s.strip_prefix("w16:") {
+        let units: Option<Vec<u16>> = s
+            .as_bytes()
+            .chunks(4)
+            .map(|c| {
+                if c.len() == 4 {
+                    std::str::from_utf8(c)
+                        .ok()
+                        .and_then(|s| u16::from_str_radix(s, 16).ok())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        return units
+            .map(|v| std::ffi::OsString::from_wide(&v).into())
+            .unwrap_or_default();
+    }
     let bytes: Option<Vec<u8>> = s
         .as_bytes()
         .chunks(2)
@@ -51,7 +83,7 @@ fn unhex(s: &str) -> PathBuf {
             if c.len() == 2 {
                 std::str::from_utf8(c)
                     .ok()
-                    .and_then(|v| u8::from_str_radix(v, 16).ok())
+                    .and_then(|s| u8::from_str_radix(s, 16).ok())
             } else {
                 None
             }
@@ -75,7 +107,7 @@ fn parse(text: &str) -> Preferences {
                     p.format = v
                         .parse::<i32>()
                         .ok()
-                        .filter(|n| (0..=6).contains(n))
+                        .filter(|n| (0..=7).contains(n))
                         .unwrap_or(0)
                 }
                 "source_folder_hex" => p.source_folder = unhex(v),
@@ -88,6 +120,17 @@ fn parse(text: &str) -> Preferences {
                         .unwrap_or(90)
                 }
                 "webp_lossless" => p.webp_lossless = v != "false",
+                "avif_lossless" => p.avif_lossless = v == "true",
+                "jxl_lossless" => p.jxl_lossless = v != "false",
+                "jxl_quality" => {
+                    p.jxl_quality = v
+                        .parse::<i32>()
+                        .ok()
+                        .filter(|n| (1..=99).contains(n))
+                        .unwrap_or(90)
+                }
+                "iat_path_hex" => p.iat_path = unhex(v),
+                "iat_enabled" => p.iat_enabled = v == "true",
                 "notify" => p.notify = v != "false",
                 _ => {}
             }
@@ -111,12 +154,21 @@ pub fn save(path: &Path, p: Preferences) -> std::io::Result<()> {
         "language={}\ntheme={}\nformat={}\nsource_folder_hex={}\noutput_folder_hex={}\navif_quality={}\nwebp_lossless={}\nnotify={}\n",
         LANGUAGES[p.language.clamp(0, 3) as usize],
         THEMES[p.theme.clamp(0, 2) as usize],
-        p.format.clamp(0, 6),
+        p.format.clamp(0, 7),
         hex(&p.source_folder),
         hex(&p.output_folder),
         p.avif_quality.clamp(1, 100),
         p.webp_lossless,
         p.notify
+    )?;
+    write!(
+        f,
+        "avif_lossless={}\njxl_quality={}\njxl_lossless={}\niat_path_hex={}\niat_enabled={}\n",
+        p.avif_lossless,
+        p.jxl_quality.clamp(1, 99),
+        p.jxl_lossless,
+        hex(&p.iat_path),
+        p.iat_enabled
     )?;
     f.as_file().sync_all()?;
     f.persist(path).map_err(|e| e.error)?;
@@ -125,6 +177,31 @@ pub fn save(path: &Path, p: Preferences) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn windows_path_encoding_preserves_surrogates_and_reads_legacy_hex() {
+        use std::os::windows::ffi::OsStringExt;
+        let path = PathBuf::from(std::ffi::OsString::from_wide(&[
+            68, 58, 92, 0xd800, 46, 101, 120, 101,
+        ]));
+        assert_eq!(unhex(&hex(&path)), path);
+        assert_eq!(
+            unhex("443a2f746f6f6c732f6961742e657865"),
+            PathBuf::from("D:/tools/iat.exe")
+        );
+        assert!(unhex("w16:000").as_os_str().is_empty());
+    }
+    #[test]
+    fn iat_opt_in_preserves_explicit_saved_preference() {
+        let d = tempfile::tempdir().unwrap();
+        let path = d.path().join("config.ini");
+        assert!(!load(&path).iat_enabled);
+        for (value, expected) in [("true", true), ("false", false), ("invalid", false)] {
+            std::fs::write(&path, format!("iat_enabled={value}\n")).unwrap();
+            assert_eq!(load(&path).iat_enabled, expected);
+        }
+        std::fs::write(&path, "language=2\n").unwrap();
+        assert!(!load(&path).iat_enabled);
+    }
     #[test]
     fn preferences_roundtrip_and_recovery() {
         let dir = tempfile::tempdir().unwrap();
@@ -135,7 +212,12 @@ mod tests {
                 let p = Preferences {
                     language,
                     theme,
-                    format: 6,
+                    format: 7,
+                    avif_lossless: true,
+                    jxl_lossless: false,
+                    jxl_quality: 75,
+                    iat_enabled: false,
+                    iat_path: PathBuf::from("D:/tools/iat.exe"),
                     source_folder: PathBuf::from("D:/來源 [1] = 圖"),
                     output_folder: PathBuf::from("E:/輸出"),
                     notify: false,

@@ -20,16 +20,35 @@ fn main() {
         candidates.sort();
         candidates.pop().expect("rc.exe not found; set RC")
     });
-    let out = PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("app.res");
-    assert!(
-        Command::new(rc)
-            .current_dir("assets")
-            .arg("/nologo")
-            .arg(format!("/fo{}", out.display()))
-            .arg("app.rc")
-            .status()
-            .expect("Run Windows SDK resource compiler")
-            .success()
-    );
-    println!("cargo:rustc-link-arg-bin=imb-c={}", out.display());
+    // GUI／CLI 必須以靜態 CRT 建置：程式本身不載入可再散布的 Microsoft DLL，
+    // 隨包的 Microsoft DLL 只由 ImageMagick 引擎使用（.cargo/config.toml 設定；
+    // 若以 RUSTFLAGS 覆寫 config，需自行加入 -C target-feature=+crt-static）。
+    if env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc")
+        && !env::var("CARGO_CFG_TARGET_FEATURE")
+            .unwrap_or_default()
+            .split(',')
+            .any(|f| f == "crt-static")
+    {
+        panic!("IMB-C requires -C target-feature=+crt-static on MSVC (see .cargo/config.toml)");
+    }
+    // 靜態匯入只搜尋 System32，排除應用程式目錄、CWD 與 PATH。
+    println!("cargo:rustc-link-arg=/DEPENDENTLOADFLAG:0x800");
+    // GUI 與 CLI 都附相同產品版本；原始檔名各自正確，避免 CLI 缺少版本資源。
+    for binary in ["imb-c", "imb-c-cli"] {
+        let out = PathBuf::from(env::var_os("OUT_DIR").unwrap()).join(format!("{binary}.res"));
+        let mut command = Command::new(&rc);
+        command.current_dir("assets").arg("/nologo");
+        if binary == "imb-c-cli" {
+            command.arg("/dIMBC_CLI");
+        }
+        assert!(
+            command
+                .arg(format!("/fo{}", out.display()))
+                .arg("app.rc")
+                .status()
+                .expect("Run Windows SDK resource compiler")
+                .success()
+        );
+        println!("cargo:rustc-link-arg-bin={binary}={}", out.display());
+    }
 }

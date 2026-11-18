@@ -121,31 +121,53 @@ pub(super) fn native_write_limit() -> u64 {
         NATIVE_WRITE_LIMIT
     }
 }
+/// 單次引擎呼叫整棵暫存樹（引擎在 AppContainer 下唯一可寫的位置）的觀察用量上限。
+pub(super) const SCRATCH_LIMIT: u64 = 8 * 1024 * 1024 * 1024;
+#[cfg(test)]
+thread_local! { pub(super) static TEST_SCRATCH_LIMIT: std::cell::Cell<u64> = const { std::cell::Cell::new(SCRATCH_LIMIT) }; }
+pub(super) fn scratch_limit() -> u64 {
+    #[cfg(test)]
+    {
+        TEST_SCRATCH_LIMIT.with(|n| n.get())
+    }
+    #[cfg(not(test))]
+    {
+        SCRATCH_LIMIT
+    }
+}
 const ACTIVE_LIMIT: u64 = 64 * 1024 * 1024 * 1024;
 static ACTIVE: AtomicU64 = AtomicU64::new(0);
 
 pub(super) struct Budget {
     used: AtomicU64,
-    limit: u64,
+    limit: AtomicU64,
 }
 impl Budget {
     #[cfg(test)]
     pub(super) fn with_limit(limit: u64) -> Self {
         Self {
             used: AtomicU64::new(0),
-            limit,
+            limit: AtomicU64::new(limit),
         }
     }
     pub(super) fn new() -> Self {
         Self {
             used: AtomicU64::new(0),
-            limit: JOB_LIMIT,
+            limit: AtomicU64::new(JOB_LIMIT),
         }
+    }
+    #[cfg(test)]
+    pub(super) fn usage(&self) -> (u64, u64) {
+        (
+            self.used.load(Ordering::Relaxed),
+            self.limit.load(Ordering::Relaxed),
+        )
     }
     pub(super) fn reserve(&self, bytes: u64) -> io::Result<()> {
         let add = |used: u64, limit: u64| used.checked_add(bytes).filter(|n| *n <= limit);
+        let limit = self.limit.load(Ordering::Relaxed);
         self.used
-            .try_update(Ordering::Relaxed, Ordering::Relaxed, |n| add(n, self.limit))
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |n| add(n, limit))
             .map_err(|_| io::Error::other("單檔累計串流寫入超過上限"))?;
         if ACTIVE
             .try_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
@@ -219,10 +241,7 @@ mod tests {
     use super::*;
     #[test]
     fn cap_precedes_write_and_budget_is_shared() {
-        let budget = Budget {
-            used: AtomicU64::new(0),
-            limit: 10,
-        };
+        let budget = Budget::with_limit(10);
         let failed = AtomicBool::new(false);
         let piped = AtomicU64::new(0);
         let mut out = Vec::new();
@@ -248,10 +267,7 @@ mod tests {
     }
     #[test]
     fn concurrent_reservations_cannot_exceed_job_limit() {
-        let budget = Budget {
-            used: AtomicU64::new(0),
-            limit: 100,
-        };
+        let budget = Budget::with_limit(100);
         std::thread::scope(|scope| {
             for _ in 0..2 {
                 scope.spawn(|| {

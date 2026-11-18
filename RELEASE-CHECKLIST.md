@@ -81,12 +81,12 @@ cargo test --release --locked --bin imb-c
 $root = (Get-Location).Path
 $env:IMBC_TEST_ENGINE = Join-Path $root 'target\release\ImageMagick\magick.exe'
 $env:IMBC_TEST_UNC_ROOT = '\\localhost\' + ($root -replace '^([A-Za-z]):', '$1$') + '\work\<本次工作目錄>'
-$env:IMBC_TEST_ASSETS = '<含 rukamizugi.psd 的資料夾>'
+$env:IMBC_TEST_PSD = '<私人 PSD 素材的完整路徑>'
 cargo test --release --locked --bin imb-c -- --include-ignored --skip r2_child_temp_fixture --test-threads=1
 ```
 
 - 先建立 `work\<本次工作目錄>`；`IMBC_TEST_UNC_ROOT` 需要可存取的本機系統管理共用（例如 `D$`）。
-- `IMBC_TEST_ASSETS` 是含 `rukamizugi.psd` 的資料夾；未設定時 `real_csp_psd_conversion_and_source_preservation` 會印出原因並跳過。
+- `IMBC_TEST_PSD` 是唯讀私人 PSD 素材的完整路徑；未設定時 `real_csp_psd_conversion_and_source_preservation` 會印出原因並跳過。
 - `r2_child_temp_fixture` 是父測試啟動的子程序入口，單獨執行沒有意義，一律 `--skip`。
 - ignored 測試都在 `--bin imb-c`。`verify-v12`、`verify-v13`、`acceptance-v13` 是驗收用 CLI，沒有 `#[test]`，`cargo test --bin verify-v13 -- --ignored` 會執行 0 項。
 - 記錄 runtime 版本、通過／失敗數與日誌位置。
@@ -99,7 +99,7 @@ cargo test --release --locked --bin imb-c -- --include-ignored --skip r2_child_t
 | `psd_composite_and_transparency` | 已封裝的 v1.1 引擎 | 同上 |
 | `imagemagick_matrix_and_failures` | 已封裝的 ImageMagick | 同上；未設定 `IMBC_TEST_ENGINE` 時改用 `locate_engine()` |
 
-更換 runtime 後，如果這三項因為綁定舊引擎的行為而失敗，不要改用新 runtime 硬改預期值：另以對應的舊版引擎（`releases\` 內的已封裝版本）單獨執行該案例並記錄路徑，再用新 runtime 驗證同一能力。其餘 ignored 測試都標註為 v1.3 runtime。
+更換 runtime 後，如果這三項因為繫結舊引擎的行為而失敗，不要改用新 runtime 硬改預期值：另以對應的舊版引擎（`releases\` 內的已封裝版本）單獨執行該案例並記錄路徑，再用新 runtime 驗證同一能力。其餘 ignored 測試都標註為 v1.3 runtime。
 
 ### 6.3 其他
 

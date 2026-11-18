@@ -6,8 +6,12 @@ fn security_lowil_rejected_launch_stops_suspended_process() {
     let sandbox = low_integrity::Sandbox::new().unwrap();
     let guard = process_guard::ProcessGuard::with_memory_limit(256 * 1024 * 1024).unwrap();
     let input = tempfile::tempfile_in(controlled_temp::preferred_root().unwrap()).unwrap();
-    let mut command = Command::new(windows_directory().unwrap().join("System32/cmd.exe"));
-    command.env_clear().args(["/d", "/c", "exit 0"]);
+    let system = windows_directory().unwrap().join("System32");
+    let scratch = tempfile::tempdir_in(controlled_temp::preferred_root().unwrap()).unwrap();
+    let mut command = Command::new(system.join("cmd.exe"));
+    // AppContainer 程序需要正式的明確環境；空環境區塊會被 Windows 拒絕（203）。
+    child_environment(&mut command, &system, scratch.path(), scratch.path()).unwrap();
+    command.args(["/d", "/c", "exit 0"]);
     low_integrity::TEST_REJECT_BEFORE_RESUME.with(|v| v.set(true));
     let result = sandbox.spawn(&command, &input, guard.handle());
     low_integrity::TEST_REJECT_BEFORE_RESUME.with(|v| v.set(false));
@@ -15,7 +19,7 @@ fn security_lowil_rejected_launch_stops_suspended_process() {
         Ok(_) => panic!("拒絕的程序不應恢復"),
         Err(e) => e,
     };
-    assert!(error.to_string().contains("Low IL 驗證失敗"));
+    assert!(error.to_string().contains("Low IL 驗證失敗"), "{error}");
     guard.stop_and_wait().unwrap();
 }
 
@@ -32,7 +36,11 @@ fn lowil_child_fixture() {
     std::io::stdin().read_to_string(&mut text).unwrap();
     let mut paths = text.lines();
     let victim = PathBuf::from(paths.next().unwrap());
-    assert_eq!(fs::read(&victim).unwrap(), b"medium-sentinel");
+    // AppContainer：未授權的一般使用者檔案連讀取都被拒絕（舊 Low IL 可讀）。
+    assert_eq!(
+        fs::read(&victim).unwrap_err().kind(),
+        std::io::ErrorKind::PermissionDenied
+    );
     assert_eq!(
         fs::write(&victim, b"changed").unwrap_err().kind(),
         std::io::ErrorKind::PermissionDenied
@@ -48,16 +56,19 @@ fn lowil_child_fixture() {
             .kind(),
         std::io::ErrorKind::PermissionDenied
     );
-    let own = PathBuf::from(std::env::var_os("TEMP").unwrap()).join("low-child.bin");
+    let own =
+        PathBuf::from(std::env::var_os("MAGICK_TEMPORARY_PATH").unwrap()).join("low-child.bin");
     fs::write(&own, b"low-ok").unwrap();
     assert_eq!(fs::read(&own).unwrap(), b"low-ok");
     if let Some(unc) = paths.next() {
         // 此斷言僅適用本機 SMB 實測，不能推論所有遠端伺服器。
+        // AppContainer 沒有網路 capability：SMB 讀寫都被拒絕。
+        assert!(fs::read(unc).is_err(), "AppContainer 不應能讀取 SMB 檔案");
         assert!(
             fs::write(unc, b"changed-via-smb").is_err(),
-            "Low IL 不應能修改本機 SMB 的一般檔案"
+            "AppContainer 不應能修改本機 SMB 的一般檔案"
         );
-        println!("lowil-local-smb-write-denied");
+        println!("lowil-local-smb-read-write-denied");
     }
     // 繼承 stdin 的現有控制代碼也必須沒有寫入權限。
     #[link(name = "kernel32")]
@@ -90,23 +101,8 @@ fn lowil_child_fixture() {
             .try_reserve_exact(512 * 1024 * 1024)
             .is_err()
     );
-    // 8 個作用中程序包含自己；第 8 個後代須由 Job 拒絕。
+    // CHILD_PROCESS_POLICY：引擎連一個子程序都不能建立（不依賴 Job 程序數上限）。
     let exe = std::env::current_exe().unwrap();
-    let mut children = Vec::new();
-    for _ in 0..7 {
-        children.push(
-            Command::new(&exe)
-                .args([
-                    "--exact",
-                    "engine::regression_security::lowil_sleep_fixture",
-                    "--ignored",
-                ])
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .spawn()
-                .unwrap(),
-        );
-    }
     assert!(
         Command::new(&exe)
             .args([
@@ -114,13 +110,11 @@ fn lowil_child_fixture() {
                 "engine::regression_security::lowil_sleep_fixture",
                 "--ignored"
             ])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
             .spawn()
             .is_err()
     );
-    for mut child in children {
-        child.kill().unwrap();
-        child.wait().unwrap();
-    }
     println!("lowil-boundary-ok");
 }
 
@@ -128,6 +122,126 @@ fn lowil_child_fixture() {
 #[ignore = "Subprocess fixture only"]
 fn lowil_sleep_fixture() {
     std::thread::sleep(Duration::from_secs(15));
+}
+
+/// 以測試執行檔本身作為隔離引擎的假程式；動作腳本由 stdin（來源控制代碼）提供。
+/// AppContainer 下 PowerShell 會進入 ConstrainedLanguage，無法再當可靠的假引擎。
+pub(super) const ENGINE_FIXTURE: [&str; 4] = [
+    "--exact",
+    "engine::regression_security::engine_fixture",
+    "--ignored",
+    "--nocapture",
+];
+pub(super) fn fixture_input(script: &str) -> File {
+    let mut file = tempfile::tempfile_in(controlled_temp::preferred_root().unwrap()).unwrap();
+    file.write_all(script.as_bytes()).unwrap();
+    file.seek(SeekFrom::Start(0)).unwrap();
+    file
+}
+pub(super) fn fixture_exe() -> PathBuf {
+    std::env::current_exe().unwrap()
+}
+#[test]
+#[ignore = "Subprocess fixture only"]
+fn engine_fixture() {
+    let mut script = String::new();
+    std::io::stdin().read_to_string(&mut script).unwrap();
+    let scratch = PathBuf::from(std::env::var_os("MAGICK_TEMPORARY_PATH").unwrap());
+    let home = PathBuf::from(std::env::var_os("USERPROFILE").unwrap());
+    let mut out = std::io::stdout();
+    let mut err = std::io::stderr();
+    for line in script.lines() {
+        let (op, arg) = line.split_once(' ').unwrap_or((line, ""));
+        match op {
+            "out" => {
+                out.write_all(arg.as_bytes()).unwrap();
+                out.flush().unwrap();
+            }
+            "err" => {
+                writeln!(err, "{arg}").unwrap();
+                err.flush().unwrap();
+            }
+            "sleep" => std::thread::sleep(Duration::from_millis(arg.parse().unwrap())),
+            "exit" => std::process::exit(arg.parse().unwrap()),
+            "scratch" => {
+                fs::write(scratch.join("magick-fixture"), b"private image").unwrap();
+                // Windows 會把 AppContainer 的 TEMP 改寫到已刪除的 profile；必須不可寫。
+                let temp = PathBuf::from(std::env::var_os("TEMP").unwrap());
+                let denied = fs::write(temp.join("imb-c-temp-probe"), b"x").is_err();
+                writeln!(out, "\nSCRATCH={}\nTEMP_DENIED={denied}", scratch.display()).unwrap();
+                out.flush().unwrap();
+            }
+            "errflood" => {
+                let block = vec![b'x'; 65536];
+                loop {
+                    err.write_all(&block).unwrap();
+                    err.flush().unwrap();
+                }
+            }
+            // 在 native cache（MAGICK_TEMPORARY_PATH）或 HOME（profile）逐 MiB 寫入。
+            "fill" | "fillhome" => {
+                let dir = if op == "fill" { &scratch } else { &home };
+                let mut file = File::create_new(dir.join("bounded.bin")).unwrap();
+                let data = vec![7u8; 1048576];
+                for _ in 0..arg.parse::<u32>().unwrap() {
+                    file.write_all(&data).unwrap();
+                    file.flush().unwrap();
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+            }
+            // 只以唯讀方式開啟／列舉，絕不寫入；用於實體 exFAT／SMB 的拒絕驗證。
+            "open" => {
+                let denied = File::open(arg).is_err();
+                writeln!(
+                    out,
+                    "
+OPEN_DENIED={denied}"
+                )
+                .unwrap();
+            }
+            "list" => {
+                let denied = fs::read_dir(arg).is_err();
+                writeln!(
+                    out,
+                    "
+LIST_DENIED={denied}"
+                )
+                .unwrap();
+            }
+            // 唯讀讀取（runtime 快取應可讀）。
+            "readfile" => {
+                let ok = fs::read(arg).is_ok();
+                writeln!(out, "\nREAD_OK={ok}").unwrap();
+            }
+            // 嘗試以寫入權限開啟既有檔案、或在目錄內建立新檔（runtime 快取都必須拒絕）。
+            "writefile" => {
+                let denied = File::options().append(true).open(arg).is_err();
+                writeln!(out, "\nWRITE_DENIED={denied}").unwrap();
+            }
+            "createin" => {
+                let denied = File::create_new(Path::new(arg).join("planted.dll")).is_err();
+                writeln!(out, "\nCREATE_DENIED={denied}").unwrap();
+            }
+            // 回報繼承的 stdin 控制代碼實際指向的檔案（H3：只能是受控暫存或本機 NTFS 來源）。
+            "stdin" => {
+                let stdin = std::mem::ManuallyDrop::new(unsafe {
+                    use std::os::windows::io::FromRawHandle;
+                    File::from_raw_handle(std::os::windows::io::AsRawHandle::as_raw_handle(
+                        &std::io::stdin(),
+                    ))
+                });
+                let path = filesystem_safety::final_path(&stdin);
+                writeln!(
+                    out,
+                    "\nSTDIN={}",
+                    path.map_or_else(|e| format!("ERR {e}"), |p| p.display().to_string())
+                )
+                .unwrap();
+            }
+            "" => {}
+            other => panic!("未知 fixture 動作 {other}"),
+        }
+    }
 }
 
 #[test]
@@ -208,7 +322,7 @@ fn security_lowil_blocks_medium_writes() {
         assert_eq!(fs::read(p).unwrap(), b"medium-smb-sentinel");
     }
     eprintln!(
-        "LOWIL boundary: medium writes denied; private temp writable; stdin readonly; parent IL={before}; Job memory/process limits enforced; local SMB tested={}",
+        "AppContainer boundary: medium reads/writes denied; private temp writable; stdin readonly; parent IL={before}; Job memory limit and child-process policy enforced; local SMB tested={}",
         unc_victim.is_some()
     );
     assert_eq!(
@@ -269,7 +383,21 @@ fn security_live_child_reader_panics_and_unknown_stop_retain_all_scratch() {
         assert!(error.contains("保留"));
         assert_eq!(fs::read(root.join("sentinel")).unwrap(), b"preserve");
         // 注入失敗前的真實 Job 查詢已確認 active=0，故僅清除此案例的新目錄。
-        fs::remove_dir_all(root).unwrap();
+        // 測試只在上方實證 Job active=0 後清理；Windows 的掃描器或其他
+        // 合作程序可能短暫持有控制代碼，不能把這個瞬間當成保留行為失敗。
+        let cleanup_start = Instant::now();
+        loop {
+            match fs::remove_dir_all(&root) {
+                Ok(()) => break,
+                Err(e)
+                    if e.raw_os_error() == Some(32)
+                        && cleanup_start.elapsed() < Duration::from_secs(2) =>
+                {
+                    std::thread::sleep(Duration::from_millis(25))
+                }
+                Err(e) => panic!("已停止測試工作的清理失敗，保留 {}：{e}", root.display()),
+            }
+        }
     }
 }
 
@@ -775,17 +903,52 @@ fn security_large_image_profile() {
     eprintln!("LARGE_SOURCE side={side} sha256={source_hash}");
     let started = Instant::now();
     TEST_NATIVE_PEAK.with(|v| v.set(0));
-    let result = convert_with_options(
-        &engine,
-        &input,
-        root.path(),
-        format,
-        &Options {
-            webp_lossless: true,
-            avif_quality: 65,
-            ..Default::default()
-        },
-        &AtomicBool::new(false),
+    // H1：量測實際同時佔用的尖峰（不是累計寫入）。暫存根目錄同時包含工作暫存與本測試的輸出目錄；
+    // 以即時大小（開啟查詢，不跟隨連結）每 50 ms 取樣，另記錄磁碟區剩餘空間的最低點。
+    let temp_root = controlled_temp::preferred_root().unwrap();
+    let baseline_tree = controlled_temp::tree_size(&temp_root).unwrap_or(0);
+    let baseline_free = controlled_temp::free_bytes(&temp_root).unwrap();
+    let sampling = AtomicBool::new(true);
+    let (peak_tree, min_free) = (
+        std::sync::atomic::AtomicU64::new(baseline_tree),
+        std::sync::atomic::AtomicU64::new(baseline_free),
+    );
+    let result = std::thread::scope(|scope| {
+        scope.spawn(|| {
+            while sampling.load(Ordering::Relaxed) {
+                if let Ok(size) = controlled_temp::tree_size(&temp_root) {
+                    peak_tree.fetch_max(size, Ordering::Relaxed);
+                }
+                if let Ok(free) = controlled_temp::free_bytes(&temp_root) {
+                    min_free.fetch_min(free, Ordering::Relaxed);
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+        });
+        let result = convert_with_options(
+            &engine,
+            &input,
+            root.path(),
+            format,
+            &Options {
+                webp_lossless: true,
+                avif_quality: 65,
+                ..Default::default()
+            },
+            &AtomicBool::new(false),
+        );
+        sampling.store(false, Ordering::Relaxed);
+        result
+    });
+    let (temporary, destination) =
+        controlled_temp::disk_need(side * side, fs::metadata(&input).unwrap().len());
+    eprintln!(
+        "LARGE_PEAK tree_bytes={} volume_bytes={} reserved_bytes={}",
+        peak_tree
+            .load(Ordering::Relaxed)
+            .saturating_sub(baseline_tree),
+        baseline_free.saturating_sub(min_free.load(Ordering::Relaxed)),
+        temporary + 2 * destination
     );
     eprintln!(
         "LARGE side={side} format={format:?} elapsed={:?} result={result:?}",
@@ -802,6 +965,9 @@ fn security_large_image_profile() {
         "LARGE_NATIVE observed_peak_bytes={}",
         TEST_NATIVE_PEAK.with(|v| v.get())
     );
+    let (used, cap) = TEST_LAST_BUDGET.with(|v| v.get());
+    eprintln!("LARGE_BUDGET cumulative_bytes={used} cap_bytes={cap}");
+    assert!(used <= cap);
     assert_eq!(
         sha256(&mut File::open(&input).unwrap()).unwrap(),
         source_hash
@@ -878,19 +1044,12 @@ fn security_real_engine_output_limit_prevents_publication() {
 fn security_stderr_flood_stops_child_and_cleans_owned_scratch() {
     let job = Job::new().unwrap();
     let root = job_dir();
-    let input = job_file().unwrap();
+    let input = fixture_input("errflood\n");
     let output = job_file().unwrap();
-    let shell = PathBuf::from(std::env::var_os("SystemRoot").unwrap())
-        .join("System32/WindowsPowerShell/v1.0/powershell.exe");
     let start = Instant::now();
     let result = run(
-        &shell,
-        &[
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            "$s='x'*65536; while ($true) { [Console]::Error.Write($s); [Console]::Error.Flush() }",
-        ],
+        &fixture_exe(),
+        &ENGINE_FIXTURE,
         &input,
         &output,
         &AtomicBool::new(false),
@@ -906,35 +1065,34 @@ fn security_stderr_flood_stops_child_and_cleans_owned_scratch() {
 #[test]
 fn security_cancellation_with_stderr_keeps_exact_cancel_result() {
     let job = Job::new().unwrap();
-    let input = job_file().unwrap();
-    let output = job_file().unwrap();
+    let input = fixture_input("err diagnostic\nout READY-MARK\nsleep 30000\n");
+    // 具名輸出供觀察執行緒以路徑讀取，不共用寫入端的檔案位置。
+    let output = tempfile::NamedTempFile::new_in(job_dir()).unwrap();
     let cancel = AtomicBool::new(false);
-    let shell = PathBuf::from(std::env::var_os("SystemRoot").unwrap())
-        .join("System32/WindowsPowerShell/v1.0/powershell.exe");
     let result = std::thread::scope(|scope| {
         scope.spawn(|| {
             let start = Instant::now();
-            while output.metadata().unwrap().len() == 0 && start.elapsed() < Duration::from_secs(8)
+            while !fs::read(output.path())
+                .unwrap()
+                .windows(10)
+                .any(|w| w == b"READY-MARK")
+                && start.elapsed() < Duration::from_secs(8)
             {
                 std::thread::sleep(Duration::from_millis(10));
             }
             cancel.store(true, Ordering::Relaxed);
         });
         run(
-            &shell,
-            &[
-                "-NoProfile",
-                "-NonInteractive",
-                "-Command",
-                "[Console]::Error.WriteLine('diagnostic'); [Console]::Out.Write('ready'); [Console]::Out.Flush(); Start-Sleep -Seconds 30",
-            ],
+            &fixture_exe(),
+            &ENGINE_FIXTURE,
             &input,
-            &output,
+            output.as_file(),
             &cancel,
         )
     });
+    // stderr 有診斷文字時，取消結果仍必須是精確的「已取消」。
     assert_eq!(result.unwrap_err(), "已取消");
-    assert_eq!(output.metadata().unwrap().len(), 5);
+    assert!(String::from_utf8_lossy(&fs::read(output.path()).unwrap()).contains("READY-MARK"));
     drop((input, output));
     job.finish(Ok(())).unwrap();
 }
@@ -1036,6 +1194,20 @@ fn crash_instance_fixture() {
             .unwrap(),
     );
     drop(handle);
+    let external = state.join("imb-c-iat-crashed");
+    fs::create_dir(&external).unwrap();
+    fs::write(external.join("report.json"), b"partial external report").unwrap();
+    let handle = File::options()
+        .access_mode(0x80)
+        .custom_flags(0x0220_0000)
+        .open(&external)
+        .unwrap();
+    std::mem::forget(
+        ledger
+            .record(instance_ledger::Kind::Dir, &handle, &external)
+            .unwrap(),
+    );
+    drop(handle);
     let partial = state.join(".tmpPARTIAL");
     let file = File::create(&partial).unwrap();
     std::mem::forget(
@@ -1119,12 +1291,13 @@ fn security_crashed_instance_residue_is_recovered() {
     let report = survivor.recover().unwrap();
     assert_eq!(report.journals, 1, "{report:?}");
     assert_eq!(report.orphans, 1, "{report:?}");
-    assert_eq!(report.removed, 2, "{report:?}");
+    assert_eq!(report.removed, 3, "{report:?}");
     assert!(report.kept.is_empty(), "{report:?}");
     assert_eq!(unsafe { WaitForSingleObject(orphan_handle, 5000) }, 0);
     unsafe { CloseHandle(orphan_handle) };
     assert!(!state.path().join("imb-c-work-crashed").exists());
     assert!(!state.path().join(".tmpPARTIAL").exists());
+    assert!(!state.path().join("imb-c-iat-crashed").exists());
     assert_eq!(fs::read(&user_file).unwrap(), b"original");
     assert!(
         bystander.try_wait().unwrap().is_none(),
@@ -1243,23 +1416,19 @@ fn security_recover_finished_test_instances() {
     assert!(report.kept.is_empty(), "{report:?}");
 }
 
-// Low IL 只限制可寫位置；授權暫存內仍須由核心 Job I/O 監控停止超量寫入。
+// AppContainer 把可寫位置收斂到本次暫存樹；樹內仍須由核心 Job I/O 監控停止超量寫入。
 // 這是寫入後的累計防線，不是磁碟硬配額，也沒有嚴格的最大超出量保證。
 #[test]
 fn security_native_writes_inside_low_dir_hit_job_write_ceiling() {
     let job = Job::new().unwrap();
     let root = job_dir();
-    let input = job_file().unwrap();
+    let input = fixture_input("fill 256\n");
     let output = job_file().unwrap();
-    let shell = windows_directory()
-        .unwrap()
-        .join("System32/WindowsPowerShell/v1.0/powershell.exe");
-    let script = "$ErrorActionPreference='Stop'; $f=[IO.File]::Open([IO.Path]::Combine($env:TEMP,'bounded.bin'),'CreateNew'); $b=New-Object byte[] 1048576; for($i=0;$i -lt 256;$i++){ $f.Write($b,0,$b.Length); $f.Flush(); Start-Sleep -Milliseconds 20 }; $f.Close()";
     engine_limits::TEST_NATIVE_WRITE_LIMIT.with(|v| v.set(4 * 1024 * 1024));
     let started = Instant::now();
     let result = run(
-        &shell,
-        &["-NoProfile", "-NonInteractive", "-Command", script],
+        &fixture_exe(),
+        &ENGINE_FIXTURE,
         &input,
         &output,
         &AtomicBool::new(false),
@@ -1268,10 +1437,41 @@ fn security_native_writes_inside_low_dir_hit_job_write_ceiling() {
     let error = result.unwrap_err();
     assert!(error.contains("累計寫入"), "{error}");
     assert!(started.elapsed() < Duration::from_secs(5));
-    assert_eq!(output.metadata().unwrap().len(), 0);
+    // 輸出只含測試框架標頭，不含任何寫入資料。
+    assert!(output.metadata().unwrap().len() < 4096);
     drop((input, output));
     assert!(job.finish::<()>(Err(error)).is_err());
     assert!(!root.exists());
+}
+
+// 2026-11-18：用量輪詢原本只涵蓋 native cache 子目錄，引擎可寫的 HOME／profile
+// 父目錄不在輪詢內。現在以整棵暫存樹計算；累計寫入上限放寬，確認是用量上限生效。
+#[test]
+fn security_home_writes_hit_scratch_tree_limit() {
+    let job = Job::new().unwrap();
+    let root = job_dir();
+    let input = fixture_input("fillhome 256\n");
+    let output = job_file().unwrap();
+    engine_limits::TEST_SCRATCH_LIMIT.with(|v| v.set(8 * 1024 * 1024));
+    let started = Instant::now();
+    let result = run(
+        &fixture_exe(),
+        &ENGINE_FIXTURE,
+        &input,
+        &output,
+        &AtomicBool::new(false),
+    );
+    engine_limits::TEST_SCRATCH_LIMIT.with(|v| v.set(engine_limits::SCRATCH_LIMIT));
+    let error = result.unwrap_err();
+    assert!(error.contains("暫存觀察用量"), "{error}");
+    assert!(
+        started.elapsed() < Duration::from_secs(5),
+        "{:?} {error}",
+        started.elapsed()
+    );
+    drop((input, output));
+    assert!(job.finish::<()>(Err(error)).is_err());
+    assert!(!root.exists(), "停止後暫存樹必須清除");
 }
 
 // 2026-11-13：libjxl 0.13.0／Brotli 1.2.1 安全更新後的 JPEG ↔ JXL 跨版本無損還原。
@@ -1310,4 +1510,56 @@ fn security_jxl_013_keeps_cross_version_jpeg_reconstruction() {
         jpeg_reconstruction(&tools, &packed, back.path(), false, Some(&jpeg), &off).unwrap();
     assert!(verified);
     assert_eq!(fs::read(restored).unwrap(), original);
+}
+
+// 實體驗證（唯讀）：在無 ACL 的卸除式 FAT／exFAT 磁碟區或 SMB 共用上指定一個既有檔案，
+// 經正式 run() 路徑（AppContainer）只嘗試唯讀開啟與列舉，必須全部被拒絕。
+// 同一路徑由測試程序（Medium IL）可開啟，證明拒絕來自隔離而非檔案不存在。不寫入該磁碟區。
+#[test]
+#[ignore = "Read-only probe of a real non-ACL volume; set IMBC_TEST_NOACL_FILE (and optionally IMBC_TEST_UNC_ROOT)"]
+fn security_appcontainer_denies_real_non_acl_volume_and_smb() {
+    let mut targets = Vec::new();
+    if let Some(file) = std::env::var_os("IMBC_TEST_NOACL_FILE") {
+        targets.push(PathBuf::from(file));
+    }
+    let unc_dir = std::env::var_os("IMBC_TEST_UNC_ROOT").map(|p| tempfile::tempdir_in(p).unwrap());
+    if let Some(dir) = &unc_dir {
+        let file = dir.path().join("smb-readable.txt");
+        fs::write(&file, b"smb").unwrap();
+        targets.push(file);
+    }
+    assert!(!targets.is_empty(), "未提供實體測試路徑，不能算通過");
+    for target in &targets {
+        File::open(target).expect("Medium IL 基準必須可開啟，否則無法證明拒絕來自隔離");
+        let parent = target.parent().unwrap();
+        let job = Job::new().unwrap();
+        let input = fixture_input(&format!(
+            "open {}
+list {}
+",
+            target.display(),
+            parent.display()
+        ));
+        let output = tempfile::NamedTempFile::new_in(job_dir()).unwrap();
+        run(
+            &fixture_exe(),
+            &ENGINE_FIXTURE,
+            &input,
+            output.as_file(),
+            &AtomicBool::new(false),
+        )
+        .unwrap();
+        let text = fs::read_to_string(output.path()).unwrap();
+        assert!(
+            text.contains("OPEN_DENIED=true") && text.contains("LIST_DENIED=true"),
+            "{text}"
+        );
+        drop((input, output));
+        job.finish(Ok(())).unwrap();
+        // 不在報告中輸出私人路徑。
+        eprintln!(
+            "NOACL/SMB probe denied (read-only): remote={}",
+            target.to_string_lossy().starts_with(r"\\")
+        );
+    }
 }

@@ -20,7 +20,7 @@ fn resource(id: u16, signature: &[u8; 4], data: &[u8], pad: bool) -> Vec<u8> {
     bytes.extend([0, 0]);
     bytes.extend((data.len() as u32).to_be_bytes());
     bytes.extend(data);
-    if pad && data.len() % 2 != 0 {
+    if pad && !data.len().is_multiple_of(2) {
         bytes.push(0);
     }
     bytes
@@ -320,13 +320,18 @@ fn r2_cleanup_failure_keeps_published_success_and_warning() {
         .share_mode(0)
         .open(root.join("held-by-fixture"))
         .unwrap();
-    let mut output = NamedTempFile::new_in(dest.path()).unwrap();
-    output.write_all(b"complete validated output").unwrap();
+    let destination = Destination::open(dest.path()).unwrap();
+    let mut output = destination.create_temp().unwrap();
+    output
+        .as_file_mut()
+        .write_all(b"complete validated output")
+        .unwrap();
     let published = publish(
-        output,
-        dest.path(),
+        &mut output,
+        &destination,
         std::ffi::OsStr::new("keep"),
         Format::Png,
+        &AtomicBool::new(false),
     )
     .unwrap();
     let (path, warnings) = job.finish_with_warnings(Ok(published)).unwrap();
@@ -401,11 +406,23 @@ fn r2_anonymous_temp_survives_clone_then_os_cleans_after_exit() {
         .filter(|p| p.is_dir())
         .collect();
     assert_eq!(jobs.len(), 1);
-    assert_eq!(
-        fs::read_dir(&jobs[0]).unwrap().count(),
-        0,
-        "anonymous file survived forced destructor bypass"
-    );
+    // 程序已退出，但 Windows 的 delete-pending 目錄項目可能稍晚才消失。
+    // 只等待 OS 清理；不主動刪除、不放過仍存在的檔案。
+    let started = std::time::Instant::now();
+    loop {
+        let remaining: Vec<_> = fs::read_dir(&jobs[0])
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .collect();
+        if remaining.is_empty() {
+            break;
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "anonymous file survived forced destructor bypass: {remaining:?}"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
     assert_eq!(fs::read(peer).unwrap(), b"keep");
 }
 
@@ -497,10 +514,16 @@ fn r2_temp_unc_paths() {
         output.parent().unwrap().canonicalize().unwrap(),
         dir.path().canonicalize().unwrap()
     );
+    // 2026-11-18：SMB 來源先複製到本機受控暫存、引擎在 AppContainer 內無網路存取，
+    // 不再發出「不保證受 MIC」警告；只保留暫存改放本機的說明。
     assert_eq!(warnings.len(), 1, "{warnings:?}");
-    assert!(
-        warnings[0].contains("改用本機受控暫存")
-            && warnings[0].contains(&display_path(job_root.parent().unwrap())),
+    assert_eq!(
+        warnings
+            .iter()
+            .filter(|w| w.contains("改用本機受控暫存")
+                && w.contains(&display_path(job_root.parent().unwrap())))
+            .count(),
+        1,
         "{warnings:?}"
     );
     assert!(!job_root.exists());
@@ -588,6 +611,7 @@ fn r2_unc_input_output_temp_matrix_and_locked_source() {
         let job = Job::new_in(&temp).unwrap();
         let owned = job_dir();
         let owned_local = !controlled_temp::is_network_path(&owned).unwrap();
+        let copies = TEST_SOURCE_COPIES.with(|v| v.get());
         let result = convert_with_options_inner(
             &e,
             &input,
@@ -601,16 +625,23 @@ fn r2_unc_input_output_temp_matrix_and_locked_source() {
         assert!(output.is_file());
         assert!(verification.icc && verification.color_verified && verification.exact);
         assert!(owned_local, "{label}: {}", owned.display());
-        if matches!(label, "temp" | "verbatim-all") {
-            // 要求的暫存根目錄在 UNC：改用本機受控暫存，並以警告告知實際路徑。
-            assert_eq!(warnings.len(), 1, "{label}: {warnings:?}");
-            assert!(
-                warnings[0].contains("改用本機受控暫存"),
-                "{label}: {warnings:?}"
-            );
-        } else {
-            assert!(warnings.is_empty(), "{label}: {warnings:?}");
-        }
+        let fallback = usize::from(matches!(label, "temp" | "verbatim-all"));
+        // 遠端來源一律複製隔離；遠端輸出由 IMB-C 寫入，不需複製也不警告。
+        let remote_source = u32::from(matches!(label, "input" | "verbatim-all"));
+        assert_eq!(
+            TEST_SOURCE_COPIES.with(|v| v.get()),
+            copies + remote_source,
+            "{label}"
+        );
+        assert_eq!(warnings.len(), fallback, "{label}: {warnings:?}");
+        assert_eq!(
+            warnings
+                .iter()
+                .filter(|w| w.contains("改用本機受控暫存"))
+                .count(),
+            fallback,
+            "{label}: {warnings:?}"
+        );
         assert!(!owned.exists(), "{label}: {}", owned.display());
         assert_eq!(sha256(&mut File::open(&input).unwrap()).unwrap(), expected);
     }
@@ -624,7 +655,8 @@ fn r2_unc_input_output_temp_matrix_and_locked_source() {
         .open(&remote_source)
         .unwrap();
     let error = convert(&e, &remote_source, &destination, Format::Tiff, &off).unwrap_err();
-    assert!(error.contains("開啟來源失敗"), "{error}");
+    // RC2 第二輪起來源以「只共享讀取」開啟，共用違規回報明確的鎖定訊息（仍拒絕、不寫入）。
+    assert!(error.contains("來源正被其他程式寫入或鎖定"), "{error}");
     drop(hold);
     assert_eq!(fs::read(sentinel).unwrap(), b"existing user output");
     assert_eq!(fs::read_dir(&destination).unwrap().count(), 1);
@@ -659,7 +691,7 @@ fn r2_anonymous_temp_has_exclusive_creation_and_last_handle_cleanup() {
 }
 #[test]
 #[ignore = "v1.3 runtime"]
-fn r2_psb_rejection_is_unchanged_and_writes_nothing() {
+fn r2_truncated_psb_is_rejected_and_writes_nothing() {
     let e = engine();
     let dir = tempfile::tempdir().unwrap();
     let off = AtomicBool::new(false);

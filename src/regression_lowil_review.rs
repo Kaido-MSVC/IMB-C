@@ -136,7 +136,8 @@ fn review_child_fixture() {
         "admin" => println!("CHILD admin={admin:?} IL=4096"),
         "links" => {
             let target = PathBuf::from(lines.next().unwrap());
-            let own = PathBuf::from(std::env::var_os("TEMP").unwrap()).join("nested");
+            let own =
+                PathBuf::from(std::env::var_os("MAGICK_TEMPORARY_PATH").unwrap()).join("nested");
             fs::create_dir(&own).unwrap();
             let link = own.join("junction");
             junction(&link, &target).unwrap();
@@ -147,10 +148,11 @@ fn review_child_fixture() {
         "cross" => {
             let target = PathBuf::from(lines.next().unwrap());
             let pid: u32 = lines.next().unwrap().parse().unwrap();
-            fs::write(target, b"cross-job-tamper").unwrap();
+            let read = fs::read(&target).is_ok();
+            let write = fs::write(&target, b"cross-job-tamper").is_ok();
             let handle = unsafe { OpenProcess(0x69, 0, pid) };
             println!(
-                "CROSS_JOB write=true process_modify_handle={}",
+                "CROSS_JOB read={read} write={write} process_modify_handle={}",
                 !handle.is_null()
             );
             if !handle.is_null() {
@@ -159,12 +161,19 @@ fn review_child_fixture() {
         }
         "outside-write" => {
             let target = PathBuf::from(lines.next().unwrap());
-            let mut file = File::create(target).unwrap();
-            let data = vec![7; 1048576];
-            for _ in 0..256 {
-                file.write_all(&data).unwrap();
-                file.flush().unwrap();
-                std::thread::sleep(Duration::from_millis(20));
+            match File::create(target) {
+                Ok(mut file) => {
+                    let data = vec![7; 1048576];
+                    for _ in 0..256 {
+                        file.write_all(&data).unwrap();
+                        file.flush().unwrap();
+                        std::thread::sleep(Duration::from_millis(20));
+                    }
+                }
+                Err(e) => println!(
+                    "OUTSIDE_WRITE denied={}",
+                    e.kind() == std::io::ErrorKind::PermissionDenied
+                ),
             }
         }
         "crash" => {
@@ -277,13 +286,16 @@ fn review_t1_low_created_links_cleanup_keeps_target() {
 
 #[test]
 fn review_m2_cross_job_file_and_process_access_observation() {
+    // 2026-11-18：每個工作各自的 AppContainer。舊 Low IL 模型下此觀察為「可竄改」。
+    let peer_sandbox = low_integrity::Sandbox::new().unwrap();
     let sandbox = low_integrity::Sandbox::new().unwrap();
-    let target = low_dir(&sandbox, "imb-c-peer-");
+    assert_ne!(peer_sandbox.container_sid(), sandbox.container_sid());
+    let target = low_dir(&peer_sandbox, "imb-c-peer-");
     let own = low_dir(&sandbox, "imb-c-observer-");
     let file = target.path().join("dummy-output");
     fs::write(&file, b"original").unwrap();
     let peer_guard = process_guard::ProcessGuard::with_memory_limit(256 * 1024 * 1024).unwrap();
-    let mut peer = sandbox
+    let mut peer = peer_sandbox
         .spawn(
             &command(target.path()),
             &input("sleep\n"),
@@ -302,8 +314,12 @@ fn review_m2_cross_job_file_and_process_access_observation() {
     peer_guard.terminate();
     peer.wait().unwrap();
     peer_guard.stop_and_wait().unwrap();
-    assert_eq!(fs::read(file).unwrap(), b"cross-job-tamper");
-    eprintln!("M2 {text}");
+    assert!(
+        text.contains("CROSS_JOB read=false write=false process_modify_handle=false"),
+        "{text}"
+    );
+    assert_eq!(fs::read(file).unwrap(), b"original");
+    eprintln!("M2 isolated: {text}");
     own.close().unwrap();
     target.close().unwrap();
 }
@@ -358,8 +374,10 @@ fn review_l2_confirmed_failed_launch_cleans_low_scratch() {
     assert!(!root.exists());
 }
 
+// 2026-11-18：舊 Low IL 模型下，其他 Low 標籤目錄可寫、只能靠累計寫入監控停止；
+// AppContainer 下其他工作的暫存直接拒絕寫入，不會產生任何檔案。
 #[test]
-fn review_t3_low_writable_outside_invocation_hits_write_monitor() {
+fn review_t3_other_job_scratch_is_not_writable() {
     let sandbox = low_integrity::Sandbox::new().unwrap();
     let outside = low_dir(&sandbox, "imb-c-outside-");
     let target = outside.path().join("bounded.bin");
@@ -382,13 +400,16 @@ fn review_t3_low_writable_outside_invocation_hits_write_monitor() {
         &AtomicBool::new(false),
     );
     engine_limits::TEST_NATIVE_WRITE_LIMIT.with(|v| v.set(engine_limits::NATIVE_WRITE_LIMIT));
-    let error = result.unwrap_err();
-    assert!(error.contains("累計寫入"), "{error}");
-    let size = fs::metadata(&target).unwrap().len();
-    assert!(size > 4 * 1048576 && size < 64 * 1048576, "{size}");
-    eprintln!("T3 outside native bytes={size}; monitor stopped process");
+    result.unwrap();
+    let mut text = String::new();
+    let mut output = output;
+    output.seek(SeekFrom::Start(0)).unwrap();
+    output.read_to_string(&mut text).unwrap();
+    assert!(text.contains("OUTSIDE_WRITE denied=true"), "{text}");
+    assert!(!target.exists());
+    eprintln!("T3 other job scratch write denied");
     drop((source, output));
-    assert!(job.finish::<()>(Err(error)).is_err());
+    job.finish::<()>(Ok(())).unwrap();
     assert!(!root.exists());
     outside.close().unwrap();
 }
@@ -416,4 +437,58 @@ fn review_low_child_abrupt_exit_cleans_scratch() {
     drop((source, output));
     assert!(job.finish::<()>(Err(error)).is_err());
     assert!(!root.exists());
+}
+
+// 2026-11-18 AppContainer：固定的 runtime capability SID 必須等於 Windows 對名稱的推導結果。
+#[test]
+fn appcontainer_runtime_capability_matches_windows_derivation() {
+    use low_integrity::test_support as t;
+    assert_eq!(t::derived_runtime_capability(), t::RUNTIME);
+}
+
+// 每次呼叫的 AppContainer SID 必須不同，且 profile 在 Sandbox 釋放後不留存。
+#[test]
+fn appcontainer_each_sandbox_has_unique_sid() {
+    let first = low_integrity::Sandbox::new().unwrap();
+    let second = low_integrity::Sandbox::new().unwrap();
+    assert!(first.container_sid().starts_with("S-1-15-2-"));
+    assert_ne!(first.container_sid(), second.container_sid());
+}
+
+// 崩潰殘留回收：只刪除建立者程序已結束的 IMB-C.Engine.* profile；建立者仍存在則保留。
+#[test]
+fn appcontainer_stale_profiles_only_recovered_for_dead_creators() {
+    use low_integrity::test_support as t;
+    let mut dead = Command::new(windows_directory().unwrap().join("System32/cmd.exe"))
+        .args(["/d", "/c", "exit 0"])
+        .spawn()
+        .unwrap();
+    let dead_pid = dead.id();
+    dead.wait().unwrap();
+    // 存活的建立者：本測試執行檔的 15 秒睡眠 fixture（不依賴外部命令）。
+    let mut live = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "engine::regression_security::lowil_sleep_fixture",
+            "--ignored",
+        ])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let dead_name = format!("{}{dead_pid}.test-dead", t::PREFIX);
+    let live_name = format!("{}{}.test-live", t::PREFIX, live.id());
+    t::create_profile(&dead_name).unwrap();
+    t::create_profile(&live_name).unwrap();
+    assert!(t::profile_exists(&dead_name) && t::profile_exists(&live_name));
+    let removed = low_integrity::recover_stale_profiles();
+    let live_kept = t::profile_exists(&live_name);
+    let dead_gone = !t::profile_exists(&dead_name);
+    let _ = live.kill();
+    let _ = live.wait();
+    t::delete_profile(&live_name);
+    t::delete_profile(&dead_name);
+    assert!(dead_gone, "{removed:?}");
+    assert!(live_kept, "{removed:?}");
+    assert!(removed.iter().any(|n| n.eq_ignore_ascii_case(&dead_name)));
 }

@@ -163,7 +163,7 @@ pub(super) fn file_identity(file: &File) -> io::Result<(u64, [u8; 16])> {
     Ok((info.volume, info.id))
 }
 
-fn random_id() -> io::Result<String> {
+pub(super) fn random_id() -> io::Result<String> {
     let mut bytes = [0u8; 16];
     if unsafe { BCryptGenRandom(std::ptr::null_mut(), bytes.as_mut_ptr(), 16, 2) } < 0 {
         return Err(io::Error::other("無法產生執行個體識別碼"));
@@ -223,6 +223,14 @@ fn state_dir() -> io::Result<PathBuf> {
     }
     #[cfg(not(test))]
     {
+        Ok(app_data_dir()?.join("runtime"))
+    }
+}
+
+/// `%LOCALAPPDATA%\IMB-C`：執行個體紀錄（runtime\）與引擎 runtime 快取（engine-runtime\）的共同上層。
+#[cfg_attr(test, allow(dead_code))]
+pub(super) fn app_data_dir() -> io::Result<PathBuf> {
+    {
         #[repr(C)]
         struct Guid {
             data1: u32,
@@ -266,7 +274,7 @@ fn state_dir() -> io::Result<PathBuf> {
         }
         let path = OsString::from_wide(unsafe { std::slice::from_raw_parts(raw, length) });
         unsafe { CoTaskMemFree(raw.cast()) };
-        Ok(PathBuf::from(path).join("IMB-C").join("runtime"))
+        Ok(PathBuf::from(path).join("IMB-C"))
     }
 }
 
@@ -531,6 +539,117 @@ impl Ledger {
         })
     }
 
+    /// 在同一把跨程序表鎖內一次完成多筆預留，並可把本工作既有的一筆預留升級（RC2 第三輪）。
+    ///
+    /// `upgrade` 指定的既有預留在計算容量時**排除其原額度**，再改成同一資源的新額度，
+    /// 因此同一工作的早期預留與完整預留不會重複計入。任何一筆超出容量即全部不變，
+    /// 回傳（失敗請求的索引, 該資源其他工作已預留量）。
+    pub(super) fn reserve_many(
+        self: &Arc<Self>,
+        upgrade: Option<&Reservation>,
+        requests: &[(Resource, u64, u64)],
+    ) -> io::Result<Result<Vec<Reservation>, (usize, u64)>> {
+        if let Some(existing) = upgrade
+            && !Arc::ptr_eq(&existing.ledger, self)
+        {
+            return Err(io::Error::other("預留不屬於此執行個體紀錄"));
+        }
+        let id = self.id.clone();
+        let keys: Vec<String> = requests.iter().map(|(r, _, _)| r.key()).collect();
+        let numbers: Vec<u64> = requests
+            .iter()
+            .map(|_| self.next.fetch_add(1, Ordering::Relaxed))
+            .collect();
+        let upgrade_n = upgrade.map(|r| r.n);
+        let result = self.with_table(|lines| {
+            let current =
+                upgrade_n.and_then(|n| lines.iter().position(|l| l.instance == id && l.n == n));
+            if upgrade_n.is_some() && current.is_none() {
+                return Err((usize::MAX, 0));
+            }
+            let upgraded_key = current.map(|i| lines[i].key.clone());
+            // 升級目標：第一筆與既有預留同資源的請求。
+            let target = upgraded_key
+                .as_ref()
+                .and_then(|key| keys.iter().position(|k| k == key));
+            if current.is_some() && target.is_none() {
+                return Err((usize::MAX, 0));
+            }
+            for (index, (key, (_, bytes, capacity))) in keys.iter().zip(requests).enumerate() {
+                let held = lines
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, l)| &l.key == key && Some(*i) != current)
+                    .fold(0u64, |sum, (_, l)| sum.saturating_add(l.bytes));
+                // 同資源的其他新請求也要一起計入。
+                let pending = keys
+                    .iter()
+                    .zip(requests)
+                    .take(index)
+                    .filter(|(k, _)| *k == key)
+                    .fold(0u64, |sum, (_, (_, b, _))| sum.saturating_add(*b));
+                if held
+                    .saturating_add(pending)
+                    .checked_add(*bytes)
+                    .is_none_or(|total| total > *capacity)
+                {
+                    return Err((index, held));
+                }
+            }
+            for (index, (key, (_, bytes, _))) in keys.iter().zip(requests).enumerate() {
+                if Some(index) == target {
+                    lines[current.unwrap()].bytes = *bytes;
+                } else {
+                    lines.push(Line {
+                        instance: id.clone(),
+                        n: numbers[index],
+                        key: key.clone(),
+                        bytes: *bytes,
+                    });
+                }
+            }
+            Ok(target)
+        })?;
+        Ok(match result {
+            // 升級的那一筆沿用既有 Reservation；其餘為新建項目。
+            Ok(target) => Ok(numbers
+                .iter()
+                .enumerate()
+                .filter(|(index, _)| Some(*index) != target)
+                .map(|(_, n)| Reservation {
+                    ledger: self.clone(),
+                    n: *n,
+                })
+                .collect()),
+            Err((usize::MAX, _)) => {
+                return Err(io::Error::other("要升級的預留不存在或資源不符"));
+            }
+            Err(e) => Err(e),
+        })
+    }
+    /// 本執行個體紀錄中某筆預留目前的額度（測試與診斷用）。
+    #[allow(dead_code)]
+    pub(super) fn reserved_bytes(&self, reservation: &Reservation) -> io::Result<Option<u64>> {
+        let id = self.id.clone();
+        self.with_table(|lines| {
+            lines
+                .iter()
+                .find(|l| l.instance == id && l.n == reservation.n)
+                .map(|l| l.bytes)
+        })
+    }
+    /// 某資源目前所有存活工作的預留總量（測試與診斷用）。
+    #[allow(dead_code)]
+    pub(super) fn held_bytes(&self, resource: Resource) -> io::Result<u64> {
+        let key = resource.key();
+        self.with_table(|lines| {
+            lines
+                .iter()
+                .filter(|l| l.key == key)
+                .fold(0u64, |sum, l| sum.saturating_add(l.bytes))
+        })
+    }
+
     /// 回收已死亡執行個體的殘留。存活判斷依日誌存活鎖；回收期間持有該鎖，避免多個執行個體同時處理。
     pub(super) fn recover(&self) -> io::Result<Recovery> {
         let mut report = Recovery::default();
@@ -683,9 +802,8 @@ fn recover_entry(kind: Kind, volume: u64, id: [u8; 16], path: &Path) -> io::Resu
     if meta.file_attributes() & 0x400 != 0 || meta.is_dir() != (kind == Kind::Dir) {
         return Ok(false);
     }
-    match file_identity(&handle) {
-        Ok(actual) if actual == (volume, id) => (),
-        _ => return Ok(false), // 已不是 IMB-C 建立的那個物件：絕不刪除
+    if file_identity(&handle)? != (volume, id) {
+        return Ok(false); // 已不是 IMB-C 建立的那個物件：絕不刪除
     }
     if kind == Kind::Dir {
         controlled_temp::remove_children(path, &handle)?;
@@ -791,6 +909,8 @@ pub(super) fn global() -> io::Result<Arc<Ledger>> {
                 dirs.push(tools);
             }
             dirs.retain(|d| d.is_dir());
+            // 引擎實際由 runtime 快取啟動；快取可能稍後才建立，因此不以是否存在過濾。
+            dirs.extend(super::runtime_cache::production_component_dirs());
             state_dir()
                 .and_then(|dir| Ledger::open_in(&dir, &dirs))
                 .map(Arc::new)
@@ -921,6 +1041,30 @@ mod tests {
         assert!(a.try_reserve(Resource::Memory, 80, 100).unwrap().is_ok());
     }
 
+    #[test]
+    fn iat_temp_recovery_requires_dead_owner_and_recorded_identity() {
+        let (state, survivor) = isolated();
+        let root = tempfile::tempdir_in(controlled_temp::preferred_root().unwrap()).unwrap();
+        let owner = Arc::new(Ledger::open_in(state.path(), &[]).unwrap());
+        let owned = root.path().join("imb-c-iat-owned");
+        let unrelated = root.path().join("imb-c-iat-unrecorded");
+        fs::create_dir(&owned).unwrap();
+        fs::create_dir(&unrelated).unwrap();
+        fs::write(owned.join("report.json"), b"partial").unwrap();
+        let handle = File::options()
+            .access_mode(READ_ATTRIBUTES)
+            .custom_flags(BACKUP_SEMANTICS_OPEN_REPARSE)
+            .open(&owned)
+            .unwrap();
+        owner.record(Kind::Dir, &handle, &owned).unwrap();
+        drop(handle);
+        assert_eq!(survivor.recover().unwrap().removed, 0);
+        assert!(owned.exists());
+        owner.simulate_crash();
+        assert_eq!(survivor.recover().unwrap().removed, 1);
+        assert!(!owned.exists());
+        assert!(unrelated.exists());
+    }
     // P1-C：只回收死亡執行個體日誌中、File ID 相符的項目；同名但被替換的物件與使用者檔案不動。
     #[test]
     fn recovery_removes_only_recorded_objects_of_dead_instances() {

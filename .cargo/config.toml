@@ -1,0 +1,6 @@
+# IMB-C GUI／CLI 以靜態 CRT 建置，程式本身不依賴可再散布的 Microsoft DLL
+# （vcruntime140.dll 等只由隨包 ImageMagick 引擎使用）。
+# 注意：RUSTFLAGS／CARGO_ENCODED_RUSTFLAGS 會覆寫本設定，覆寫時須自行加入同一旗標；
+# build.rs 會在缺少 crt-static 時中止建置。
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

@@ -1,0 +1,86 @@
+{
+  "release": "1.4.0-rc.2",
+  "sources": {
+    "libjxl": {
+      "tag": "v0.13.0",
+      "commit": "5a7da83447212fe4900fc29ce97430b881caa67e",
+      "license": "BSD-3-Clause + PATENTS"
+    },
+    "Brotli": {
+      "tag": "v1.2.1",
+      "commit": "db24a98aed38a16de78cc05ca15cdd8dc2a0d92d",
+      "license": "MIT"
+    },
+    "Highway": {
+      "commit": "457c891775a7397bdb0376bb1031e6e027af1c48",
+      "license": "Apache-2.0"
+    }
+  },
+  "upstream_static_tools": {
+    "archive_url": "https://github.com/libjxl/libjxl/releases/download/v0.13.0/jxl-x64-windows-static.zip",
+    "sha256": "e394519c05ea9e5b83947f89b40afbf1ea7c631a608406c5de945a4c5bdcdcb7",
+    "workflow": "https://github.com/libjxl/libjxl/blob/5a7da83447212fe4900fc29ce97430b881caa67e/.github/workflows/release.yaml",
+    "job": "windows_build / x64-windows-static / Release / ClangCL",
+    "vcpkg": "2025.10.17"
+  },
+  "archives": {
+    "libjxl-0.13.0-brotli-highway-source.zip": {
+      "sha256": "9ae1075545921c140a0cdbd58b584e60c8a99ce63835bd068a78a87e5a91c638",
+      "origin": "IMB-C v1.3.3 Source archive, unchanged upstream export with Brotli and Highway"
+    },
+    "sjpeg-dd4d9857.zip": {
+      "sha256": "ffe06a318a4f4ad404ed976b3edf63f739e76e1ea67f360e31f57acd08011368",
+      "origin": "https://codeload.github.com/webmproject/sjpeg/zip/dd4d9857c58a25713711a46d37385ad23ca2177e"
+    },
+    "skcms-96d9171c.zip": {
+      "sha256": "e6dda76c35b4f5833e17a39ee5e43fd827fd447d5103e3db355898a29609a26f",
+      "origin": "https://codeload.github.com/google/skcms/zip/96d9171c94b937a1b5f0293de7309ac16311b722"
+    },
+    "lcms-51763476.zip": {
+      "sha256": "aa1f48ea4b207cb4ccccc9a3fd4cc6753669f0435a4ef6336fcd342e6bf13cd7",
+      "origin": "https://codeload.github.com/mm2/Little-CMS/zip/5176347635785e53ee5cee92328f76fda766ecc6"
+    },
+    "vcpkg-2025.10.17.zip": {
+      "sha256": "0ddaf1430da978e6c944eae37e29f06887b1f101d8b322eaffebc0cf2e6b461f",
+      "origin": "https://codeload.github.com/microsoft/vcpkg/zip/refs/tags/2025.10.17"
+    },
+    "vcpkg-source-cache/giflib-5.2.2.tar.gz": {
+      "sha256": "be7ffbd057cadebe2aa144542fd90c6838c6a083b5e8a9048b8ee3b66b29d5fb",
+      "origin": "vcpkg 2025.10.17 ports/giflib/portfile.cmake (version, download checksum and patches)"
+    },
+    "vcpkg-source-cache/libjpeg-turbo-libjpeg-turbo-3.1.2.tar.gz": {
+      "sha256": "560f6338b547544c4f9721b18d8b87685d433ec78b3c644c70d77adad22c55e6",
+      "origin": "vcpkg 2025.10.17 ports/libjpeg-turbo/portfile.cmake (version, download checksum and patches)"
+    },
+    "vcpkg-source-cache/madler-zlib-v1.3.1.tar.gz": {
+      "sha256": "17e88863f3600672ab49182f217281b6fc4d3c762bde361935e436a95214d05c",
+      "origin": "vcpkg 2025.10.17 ports/zlib/portfile.cmake (version, download checksum and patches)"
+    },
+    "vcpkg-source-cache/pnggroup-libpng-v1.6.50.tar.gz": {
+      "sha256": "71158e53cfdf2877bc99bcab33641d78df3f48e6e0daad030afe9cb8c031aa46",
+      "origin": "vcpkg 2025.10.17 ports/libpng/portfile.cmake (version, download checksum and patches)"
+    },
+    "vcpkg-source-cache/webmproject-libwebp-v1.6.0.tar.gz": {
+      "sha256": "93a852c2b3efafee3723efd4636de855b46f9fe1efddd607e1f42f60fc8f2136",
+      "origin": "vcpkg 2025.10.17 ports/libwebp/portfile.cmake (version, download checksum and patches)"
+    }
+  },
+  "shipping_sha256": {
+    "ImageMagick/CORE_RL_jpeg-xl_.dll": "bc8845288150afc48e9e4fce242f1ca1858e77529ea7da0981b3f31f3632908c",
+    "ImageMagick/CORE_RL_brotli_.dll": "502603493562f32aaf777a358b0b13ca567531f33dbc071a7d0a3f4d10311121",
+    "ImageMagick/CORE_RL_lcms_.dll": "a23f62712e5348c219ec08863902c7cf2c900ec48dd8bcae7a4b601607a09302",
+    "JXL/cjxl.exe": "20b49ec4a017e0ad02f44606aed488dc5f98a996ff3cbbd23ab8032fae748d97",
+    "JXL/djxl.exe": "81795e834bad0c17db5d707fde1f72520834b36788ea46b54269f3469bc85a5c"
+  },
+  "delegates": {
+    "source_modifications": "None to libjxl, Brotli or Highway; the packaging script generates DEF and RC files.",
+    "build": "source/scripts/rebuild-rc2-jxl-delegates.py",
+    "imagemagick_patches": "native-materials/licenses/security-20261112/ and security-20261113/",
+    "guide": "source/docs/v1.4-rc2-jxl-source.md"
+  },
+  "notices": "native-materials/licenses/jxl-tools/",
+  "supersedes_for_this_release": [
+    "native-materials/licenses/jxl-tools/PROVENANCE.json",
+    "native-materials/licenses/jxl-tools/libjxl-release.json"
+  ]
+}

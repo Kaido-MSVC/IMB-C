@@ -201,7 +201,12 @@ pub const TEXT: &[[&str; 4]] = &[
     ["下一頁", "下一页", "Next page", "次のページ"],
     ["開啟報告", "打开报告", "Open report", "レポートを開く"],
     ["確定", "确定", "OK", "OK"],
-    ["警告報告：", "警告报告：", "Warning report:", "警告レポート："],
+    [
+        "警告報告：",
+        "警告报告：",
+        "Warning report:",
+        "警告レポート：",
+    ],
     [
         "無法開啟警告報告",
         "无法打开警告报告",
@@ -209,6 +214,95 @@ pub const TEXT: &[[&str; 4]] = &[
         "警告レポートを開けません",
     ],
 ];
+pub const V14: &[[&str; 4]] = &[
+    [
+        "AVIF 真無損（8-bit）",
+        "AVIF 真无损（8-bit）",
+        "AVIF lossless (8-bit)",
+        "AVIF 可逆（8-bit）",
+    ],
+    ["JXL 無損", "JXL 无损", "JXL lossless", "JXL 可逆"],
+    [
+        "JXL 有損品質",
+        "JXL 有损品质",
+        "JXL lossy quality",
+        "JXL 非可逆品質",
+    ],
+    ["取消選取", "取消选择", "Clear selection", "選択を解除"],
+    [
+        "清除資料夾設定",
+        "清除文件夹设置",
+        "Clear folder settings",
+        "フォルダー設定を解除",
+    ],
+    [
+        "啟用選用外部 iat（Medium IL）",
+        "使用外部 iat 验证",
+        "Enable optional external iat (Medium IL)",
+        "外部 iat 検証を使用",
+    ],
+    ["選擇 iat…", "选择 iat…", "Choose iat…", "iat を選択…"],
+    [
+        "自動偵測（不搜尋 PATH）",
+        "自动检测（不搜索 PATH）",
+        "Automatic (no PATH search)",
+        "自動検出（PATH 検索なし）",
+    ],
+    [
+        "讀取圖片資訊",
+        "读取图片信息",
+        "Inspecting image",
+        "画像情報を確認中",
+    ],
+    [
+        "解碼高精度中繼",
+        "解码高精度中间文件",
+        "Decoding intermediate",
+        "中間画像を復号中",
+    ],
+    ["編碼輸出", "编码输出", "Encoding output", "出力を符号化中"],
+    [
+        "驗證像素與 ICC",
+        "验证像素和 ICC",
+        "Verifying pixels and ICC",
+        "画素と ICC を検証中",
+    ],
+    ["發布輸出", "保存输出", "Saving output", "出力を保存中"],
+    [
+        "iat 外部驗證中",
+        "iat 外部验证中",
+        "iat verification in progress",
+        "iat 外部検証中",
+    ],
+    [
+        "只輸出一張合成影像，原始圖層不保留；含 Alpha 的來源會安全拒絕。",
+        "仅输出一张合成图像，不保留原始图层；含 Alpha 的来源会拒绝。",
+        "Single composite only; original layers are not retained. Alpha sources are rejected.",
+        "合成画像のみ。元のレイヤーは保持されません。Alpha 入力は拒否します。",
+    ],
+    [
+        "iat 驗證未啟用",
+        "iat 验证未启用",
+        "iat verification disabled",
+        "iat 検証は無効",
+    ],
+    ["轉檔完成：", "转档完成：", "Converted: ", "変換完了："],
+    [
+        "iat 排隊等待驗證",
+        "iat 排队等待验证",
+        "iat verification queued",
+        "iat 検証待ち",
+    ],
+    [
+        "iat 未檢查：驗證佇列已滿或關閉",
+        "iat 未检查：验证队列已满或关闭",
+        "iat not checked: validation queue full or closed",
+        "iat 未検査：検証キュー満杯・終了",
+    ],
+];
+pub fn v14(lang: i32, key: usize) -> &'static str {
+    V14[key][lang.clamp(0, 3) as usize]
+}
 pub fn text(lang: i32, key: usize) -> &'static str {
     TEXT[key][lang.clamp(0, 3) as usize]
 }

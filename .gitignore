@@ -28,6 +28,9 @@ __pycache__/
 !/THIRD-PARTY-LICENSES-v1.3.0.md
 !/THIRD-PARTY-NOTICES.md
 !RELEASE-NOTES-*.md
+# RC2 public runtime terms (embedded into the executables at build time) and delivery guide.
+!/RUNTIME-RECIPIENT-TERMS.md
+!/RUNTIME-HANDOFF.md
 !/INSTALL.md
 !/RELEASE-CHECKLIST.md
 /installer/wix7/
@@ -46,3 +49,25 @@ __pycache__/
 /installer/wix7-v1.3.3/Installer-Terms.rtf
 /installer/wix7-v1.3.3/TERMS-INVENTORY.json
 /installer/wix7-v1.3.3/Release.wxs
+
+# Historical local handoffs may contain private fixture paths. Publish only these summaries.
+/docs/*
+!/docs/v1.4-plan.md
+!/docs/v1.4-development.md
+!/docs/v1.4-dng-evaluation.md
+!/docs/v1.4-test-report.md
+!/docs/v1.4-rc1-review.md
+!/docs/v1.4-rc1-acceptance.md
+!/docs/v1.4-known-issues.md
+!/docs/v1.4-rc1-build.md
+!/docs/v1.4-cli-json-contract.md
+!/docs/v1.4-rc2-review.md
+!/docs/v1.4-rc2-acceptance.md
+!/docs/v1.4-rc2-known-issues.md
+!/docs/v1.4-rc1-to-rc2.md
+!/docs/v1.4-rc2-build.md
+!/docs/v1.4-rc2-appcontainer.md
+!/docs/v1.4-rc2-runtime-delivery.md
+!/docs/v1.4-rc2-jxl-source.md
+!/docs/v1.4-rc2-license-review.md
+!/docs/v1.4-rc2-runtime-acceptance.md

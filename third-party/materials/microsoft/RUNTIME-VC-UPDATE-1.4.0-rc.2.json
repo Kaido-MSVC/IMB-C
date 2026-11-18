@@ -1,0 +1,67 @@
+{
+  "purpose": "IMB-C 1.4.0-rc.2 Microsoft Visual C++ Runtime update (runtime must not be older than the build tools)",
+  "visual_studio": {
+    "product": "Visual Studio Community 2026",
+    "installation_version": "18.12.12405.243",
+    "channel_id": "VisualStudio.18.Release",
+    "is_prerelease": false,
+    "vc_redist_default": "14.52.37025",
+    "vc_tools_default": "14.52.37025",
+    "vc_tools_preview_not_used": "14.53.36930"
+  },
+  "redistribution_basis": "Visual Studio 2026 Distributable Code: [VisualStudioFolder]\\VC\\redist, unmodified; not debug_nonredist, not onecore, not preview",
+  "runtime_file_version": "14.52.37029.0",
+  "newest_bundled_linker": "14.52",
+  "bundled_pe_checked": 34,
+  "files": {
+    "ImageMagick/MSVCP140.dll": {
+      "source": "[VisualStudioFolder]/VC/Redist/MSVC/14.52.37025/x64/Microsoft.VC145.CRT/msvcp140.dll",
+      "file_version": "14.52.37029.0",
+      "sha256": "59d325227321d52b9a523ea401ce6787a5d59f78229a0ff3a6f124e5d3445685",
+      "previous_sha256": "7c26614e1d733892c2deac7e245ce115504b1d80592dd0a01b08e3e5a55f89ca",
+      "signer": "CN=Microsoft Windows Software Compatibility Publisher",
+      "issuer": "CN=Microsoft Windows Third Party Component CA 2013",
+      "authenticode": "Valid",
+      "timestamped": true
+    },
+    "ImageMagick/vcruntime140.dll": {
+      "source": "[VisualStudioFolder]/VC/Redist/MSVC/14.52.37025/x64/Microsoft.VC145.CRT/vcruntime140.dll",
+      "file_version": "14.52.37029.0",
+      "sha256": "eb1ee979bf02324712346e5bdbfc59c785388bc50d18cc2688aae4b0734915a0",
+      "previous_sha256": "d1f4225df2cd877dbf130d5668a021dce3f94118455ff5ec952061c30afc9ce7",
+      "signer": "CN=Microsoft Windows Software Compatibility Publisher",
+      "issuer": "CN=Microsoft Windows Third Party Component CA 2013",
+      "authenticode": "Valid",
+      "timestamped": true
+    },
+    "ImageMagick/vcruntime140_1.dll": {
+      "source": "[VisualStudioFolder]/VC/Redist/MSVC/14.52.37025/x64/Microsoft.VC145.CRT/vcruntime140_1.dll",
+      "file_version": "14.52.37029.0",
+      "sha256": "a14b4a42a2c6df04d6d53a8340816023d953406f7f3d94996c7cab30c414ff63",
+      "previous_sha256": "a7146c08f89fe5b04541ab507cdb59ff7b44534d4ba3c668a426c6450a03434e",
+      "signer": "CN=Microsoft Windows Software Compatibility Publisher",
+      "issuer": "CN=Microsoft Windows Third Party Component CA 2013",
+      "authenticode": "Valid",
+      "timestamped": true
+    },
+    "ImageMagick/vcomp140.dll": {
+      "source": "[VisualStudioFolder]/VC/Redist/MSVC/14.52.37025/x64/Microsoft.VC145.OpenMP/vcomp140.dll",
+      "file_version": "14.52.37029.0",
+      "sha256": "294397f642d824a97de354aa625f993a97f34d729eca1bde56d5a897ae574888",
+      "previous_sha256": "95d4ce4a6802d1e18b5e0e1722cc30ea72ca7e033f83828f05c0b7b993fe7cbf",
+      "signer": "CN=Microsoft Windows Software Compatibility Publisher",
+      "issuer": "CN=Microsoft Windows Third Party Component CA 2013",
+      "authenticode": "Valid",
+      "timestamped": true
+    }
+  },
+  "removed": {
+    "vcruntime140.dll": {
+      "previous_sha256": "d1f4225df2cd877dbf130d5668a021dce3f94118455ff5ec952061c30afc9ce7",
+      "reason": "imb-c.exe and imb-c-cli.exe use the static CRT"
+    }
+  },
+  "manifest_entries": 58,
+  "previous_manifest_entries": 59,
+  "copied_unchanged_files": 632
+}

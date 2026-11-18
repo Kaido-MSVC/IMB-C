@@ -8,10 +8,14 @@ fn main() {
     let root = PathBuf::from(std::env::args_os().nth(1).expect("project root"))
         .canonicalize()
         .unwrap();
-    let engine = root.join("target/release/ImageMagick/magick.exe");
-    let tools = root.join("target/release/JXL");
+    let engine = std::env::var_os("IMBC_TEST_ENGINE")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| root.join("target/release/ImageMagick/magick.exe"));
+    let tools = engine.parent().unwrap().parent().unwrap().join("JXL");
     let f = root.join("tests/fixtures");
-    let out = root.join("work/v13-regression");
+    let out = std::env::var_os("IMBC_TEST_OUTPUT")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| root.join("work/v13-regression"));
     fs::create_dir_all(&out).unwrap();
     let c = AtomicBool::new(false);
     let opt = engine::Options::default();
@@ -24,19 +28,25 @@ fn main() {
         engine::Format::Psd,
         engine::Format::Tiff,
         engine::Format::Jxl,
+        engine::Format::Psb,
     ];
     let mut seeds = Vec::new();
     if !std::env::args().any(|a| a == "--tail") {
         for format in formats {
-            let (p, v) = engine::convert_with_options(
+            let result = engine::convert_with_options(
                 &engine,
                 &f.join("v13-hidden.png"),
                 &out,
                 format,
                 &opt,
                 &c,
-            )
-            .unwrap();
+            );
+            if matches!(format, engine::Format::Psd | engine::Format::Psb) {
+                assert!(result.unwrap_err().contains("Alpha"));
+                println!("PASS hidden Alpha {format:?}: safely rejected");
+                continue;
+            }
+            let (p, v) = result.unwrap();
             println!("PASS hidden RGBA {format:?}: {v}");
             rows.push(format!("hidden {format:?}: {v}"));
             seeds.push(p);
@@ -44,6 +54,12 @@ fn main() {
         for src in &seeds {
             for format in formats {
                 let result = engine::convert_with_options(&engine, src, &out, format, &opt, &c);
+                if matches!(format, engine::Format::Psd | engine::Format::Psb)
+                    && result.as_ref().is_err_and(|e| e.contains("Alpha"))
+                {
+                    rows.push(format!("Alpha -> {format:?}: safely rejected"));
+                    continue;
+                }
                 if src.extension().unwrap() == "psd" && matches!(format, engine::Format::Webp) {
                     assert!(result.unwrap_err().contains("無損像素驗證失敗"));
                     rows.push(
@@ -56,7 +72,7 @@ fn main() {
                 rows.push(format!("{} → {format:?}: {v}", src.display()));
             }
         }
-        println!("PASS 49 format pairs");
+        println!("PASS format pairs including explicit Alpha rejections");
         for n in ["v13-icc16.png", "v13-Rec2100PQ.png", "v13-Rec2100HLG.png"] {
             for format in [
                 engine::Format::Png,
@@ -178,7 +194,10 @@ fn main() {
         )
         .is_err()
     );
-    let jpeg = &seeds[2];
+    let jpeg = seeds
+        .iter()
+        .find(|p| p.extension().is_some_and(|e| e == "jpg"))
+        .unwrap();
     let (packed, _, verified) =
         engine::jpeg_reconstruction(&tools, jpeg, &out, true, None, &c).unwrap();
     assert!(verified);
@@ -186,7 +205,20 @@ fn main() {
         engine::jpeg_reconstruction(&tools, &packed, &out, false, Some(jpeg), &c).unwrap();
     assert!(verified);
     assert_eq!(fs::read(jpeg).unwrap(), fs::read(restored).unwrap());
-    assert!(engine::jpeg_reconstruction(&tools, &seeds[6], &out, false, None, &c).is_err());
+    assert!(
+        engine::jpeg_reconstruction(
+            &tools,
+            seeds
+                .iter()
+                .find(|p| p.extension().is_some_and(|e| e == "jxl"))
+                .unwrap(),
+            &out,
+            false,
+            None,
+            &c
+        )
+        .is_err()
+    );
     assert!(
         engine::jpeg_reconstruction(
             &tools,
@@ -225,7 +257,7 @@ fn main() {
         .contains("取消")
     );
     if !rows.is_empty() {
-        fs::write(root.join("work/V13-RESULTS.txt"), rows.join("\n")).unwrap();
+        fs::write(out.join("V13-RESULTS.txt"), rows.join("\n")).unwrap();
     }
     println!(
         "PASS: quality, ICC conversion/rejection, 16-bit WebP rejection, JPEG byte roundtrip/mismatch/strict rejection, corrupt/animated/multipage/PSD/cancel safety"

@@ -6,8 +6,12 @@ mod engine;
 use std::{fs, path::PathBuf, sync::atomic::AtomicBool};
 fn main() {
     let root = PathBuf::from(std::env::args_os().nth(1).expect("root"));
-    let e = root.join("target/release/ImageMagick/magick.exe");
-    let out = root.join("work/focused");
+    let e = std::env::var_os("IMBC_TEST_ENGINE")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| root.join("target/release/ImageMagick/magick.exe"));
+    let out = std::env::var_os("IMBC_TEST_OUTPUT")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| root.join("work/focused"));
     fs::create_dir_all(&out).unwrap();
     let fixtures = root.join("tests/fixtures/acceptance-v13");
     let off = AtomicBool::new(false);
@@ -42,7 +46,7 @@ fn main() {
             println!("PASS {name} {f:?}: {v}; {}", p.display());
         }
     }
-    let tools = root.join("target/release/JXL");
+    let tools = e.parent().unwrap().parent().unwrap().join("JXL");
     for name in ["baseline-metadata.jpg", "progressive-metadata.jpg"] {
         let src = fixtures.join(name);
         let before = fs::read(&src).unwrap();

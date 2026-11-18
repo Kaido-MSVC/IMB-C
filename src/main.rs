@@ -1,10 +1,13 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod batch_warnings;
+mod cli;
 mod engine;
 mod i18n;
+mod iat;
 mod imports;
 mod preferences;
+mod validation_queue;
 use rayon::prelude::*;
 use slint::ComponentHandle;
 use std::{
@@ -26,12 +29,12 @@ slint::slint! {
         in property <bool> enabled: true;
         in-out property <int> current-index: 0;
         callback selected();
-        property <[string]> formats: ["WebP", "PNG", "JPEG", "AVIF", "PSD", "TIFF", "JXL"];
+        property <[string]> formats: ["WebP", "PNG", "JPEG", "AVIF", "PSD", "TIFF", "JXL", "PSB"];
         width: 180px; height: 34px; vertical-stretch: 0;
         horizontal-stretch: 0;
         Button { width: 100%; height: 100%; text: root.formats[root.current-index] + "  ▾"; enabled: root.enabled; clicked => { choices.show(); } }
         choices := PopupWindow {
-            y: root.height; width: root.width; height: 154px;
+            y: root.height; width: root.width; height: 304px;
             close-policy: close-on-click-outside;
             VerticalBox {
                 padding: 5px;
@@ -199,6 +202,17 @@ slint::slint! {
         in-out property <int> format-index: 0;
         in-out property <string> source-folder;
         in-out property <int> avif-quality: 90;
+        in property <[string]> v14-words;
+        in-out property <bool> avif-lossless: false;
+        in-out property <int> jxl-quality: 90;
+        in-out property <bool> jxl-lossless: true;
+        in-out property <string> iat-path;
+        in-out property <bool> iat-enabled: false;
+        in-out property <string> active-stage;
+        in-out property <int> completed-count;
+        in-out property <int> validation-count;
+        in-out property <int> validation-queued;
+        callback clear-selection(); callback clear-folders(); callback choose-iat();
         in-out property <bool> webp-lossless: true;
         in-out property <bool> notify: true;
         in-out property <string> target-icc;
@@ -231,6 +245,10 @@ slint::slint! {
                 Text { text: root.destination; overflow: elide; }
             }
             HorizontalBox {
+                Button { text: root.v14-words[3]; enabled: !root.busy && root.selected-count > 0; clicked => { root.clear-selection(); } }
+                Button { text: root.v14-words[4]; enabled: !root.busy; clicked => { root.clear-folders(); } }
+            }
+            HorizontalBox {
                 Text { text: root.words[9]; vertical-alignment: center; }
                 format := FormatPicker { enabled: !root.busy; current-index <=> root.format-index; selected => { root.preferences-changed(); } }
                 Button { text: root.words[10]; enabled: !root.busy && root.ready; clicked => { root.start(); } }
@@ -238,15 +256,31 @@ slint::slint! {
             }
             HorizontalBox {
                 if root.format-index == 3: Text { text: root.words[42]; vertical-alignment: center; }
-                if root.format-index == 3: SpinBox { minimum: 1; maximum: 100; value <=> root.avif-quality; enabled: !root.busy; edited => { root.preferences-changed(); } }
+                if root.format-index == 3: SpinBox { width: 90px; horizontal-stretch: 0; minimum: 1; maximum: 100; value: root.avif-lossless ? 100 : root.avif-quality; enabled: !root.busy && !root.avif-lossless; edited(value) => { root.avif-quality = value; root.preferences-changed(); } }
+                if root.format-index == 3: CheckBox { text: root.v14-words[0]; checked <=> root.avif-lossless; enabled: !root.busy; toggled => { root.preferences-changed(); } }
+                if root.format-index == 6: CheckBox { text: root.v14-words[1]; checked <=> root.jxl-lossless; enabled: !root.busy; toggled => { root.preferences-changed(); } }
+                if root.format-index == 6 && !root.jxl-lossless: Text { text: root.v14-words[2]; vertical-alignment: center; }
+                if root.format-index == 6 && !root.jxl-lossless: SpinBox { width: 90px; horizontal-stretch: 0; minimum: 1; maximum: 99; value <=> root.jxl-quality; enabled: !root.busy; edited => { root.preferences-changed(); } }
                 if root.format-index == 0: CheckBox { text: root.words[43]; checked <=> root.webp-lossless; enabled: !root.busy; toggled => { root.preferences-changed(); } }
                 CheckBox { text: root.words[44]; checked <=> root.notify; toggled => { root.preferences-changed(); } }
             }
+            if root.format-index == 4 || root.format-index == 7: Text { text: root.v14-words[14]; wrap: word-wrap; }
             HorizontalBox {
                 Button { text: root.words[45]; enabled: !root.busy; clicked => { root.choose-icc(); } }
                 Text { text: root.target-icc == "" ? root.words[48] : root.target-icc; overflow: elide; }
             }
+            HorizontalBox {
+                CheckBox { text: root.v14-words[5]; checked <=> root.iat-enabled; enabled: !root.busy; toggled => { root.preferences-changed(); } }
+                Button { text: root.v14-words[6]; enabled: !root.busy; clicked => { root.choose-iat(); } }
+                Text { text: root.iat-path == "" ? root.v14-words[7] : root.iat-path; overflow: elide; }
+            }
             ProgressIndicator { progress: root.progress; }
+            if root.busy: HorizontalBox {
+                Text { text: root.v14-words[16] + root.completed-count + " / " + root.selected-count; }
+                Text { text: "iat: " + root.validation-count + " / " + root.validation-queued; }
+                Text { text: root.active-stage; overflow: elide; horizontal-stretch: 1; }
+            }
+            if root.busy: ProgressIndicator { indeterminate: true; }
             HorizontalBox {
                 Text { text: root.status; wrap: word-wrap; horizontal-stretch: 1; }
                 Button { text: root.words[56]; enabled: !root.busy && (root.warning-files > 0 || root.warning-report-error != ""); clicked => { root.show-warnings(); } }
@@ -263,7 +297,59 @@ struct Selection {
     output: Option<PathBuf>,
 }
 
+/// 進行中的背景工作數（轉檔批次、JPEG ↔ JXL 工具）；結束看門狗在結束程序前等待歸零。
+static ACTIVE_WORK: AtomicUsize = AtomicUsize::new(0);
+/// `app.run()` 已返回：主執行緒會自行收尾，看門狗不介入。
+static EVENT_LOOP_RETURNED: AtomicBool = AtomicBool::new(false);
+static UI_CLOSING: AtomicBool = AtomicBool::new(false);
+struct WorkGuard;
+impl WorkGuard {
+    /// 在建立執行緒**之前**計入，避免看門狗在執行緒開始前看到 0。
+    fn new() -> Self {
+        ACTIVE_WORK.fetch_add(1, Ordering::SeqCst);
+        Self
+    }
+}
+impl Drop for WorkGuard {
+    fn drop(&mut self) {
+        ACTIVE_WORK.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+/// 主視窗已要求關閉，但事件迴圈 5 秒內沒有結束時的保險（RC2 第三輪 M3）。
+///
+/// 實測：外部工具若先對 winit 內部的「Winit Thread Event Target」視窗送 WM_CLOSE，該視窗被銷毀後，
+/// 視窗計數歸零或 `quit_event_loop` 的結束訊息都無法送達，事件迴圈會在沒有任何可見視窗的情況下持續執行。
+/// 看門狗等待背景工作完成收尾。即使同步 I/O 仍在等待，也不強制中斷寫入或帳本更新。
+fn start_exit_watchdog() {
+    static STARTED: AtomicBool = AtomicBool::new(false);
+    if STARTED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    std::thread::spawn(|| {
+        std::thread::sleep(std::time::Duration::from_secs(5));
+        if EVENT_LOOP_RETURNED.load(Ordering::SeqCst) {
+            return;
+        }
+        while ACTIVE_WORK.load(Ordering::SeqCst) > 0 {
+            if EVENT_LOOP_RETURNED.load(Ordering::SeqCst) {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        if EVENT_LOOP_RETURNED.load(Ordering::SeqCst) {
+            return;
+        }
+        engine::shutdown_instance();
+        std::process::exit(0);
+    });
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    engine::initialize_dll_search()?;
+    let args: Vec<_> = std::env::args_os().skip(1).collect();
+    if cli::is_cli_invocation(&args) {
+        std::process::exit(cli::run_from_gui(args));
+    }
     let app = AppWindow::new()?;
     let about = AboutWindow::new()?;
     let help = HelpWindow::new()?;
@@ -326,6 +412,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         app.set_output_path(engine::display_path(&prefs.output_folder).into());
     }
     app.set_avif_quality(prefs.avif_quality);
+    app.set_avif_lossless(prefs.avif_lossless);
+    app.set_jxl_quality(prefs.jxl_quality);
+    app.set_jxl_lossless(prefs.jxl_lossless);
+    app.set_iat_path(prefs.iat_path.to_string_lossy().into_owned().into());
+    let raw_iat_path = Rc::new(RefCell::new(prefs.iat_path.clone()));
+    app.set_iat_enabled(prefs.iat_enabled);
     app.set_webp_lossless(prefs.webp_lossless);
     app.set_notify(prefs.notify);
     app.set_language_index(prefs.language);
@@ -335,6 +427,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let weak = app.as_weak();
     let about_weak = about.as_weak();
     let help_weak = help.as_weak();
+    let persisted_iat_path = raw_iat_path.clone();
     app.on_preferences_changed(move || {
         let a = weak.unwrap();
         if let (Some(b), Some(h)) = (about_weak.upgrade(), help_weak.upgrade()) {
@@ -350,6 +443,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     source_folder: PathBuf::from(a.get_source_folder().as_str()),
                     output_folder: PathBuf::from(a.get_output_path().as_str()),
                     avif_quality: a.get_avif_quality(),
+                    avif_lossless: a.get_avif_lossless(),
+                    jxl_quality: a.get_jxl_quality(),
+                    jxl_lossless: a.get_jxl_lossless(),
+                    iat_path: persisted_iat_path.borrow().clone(),
+                    iat_enabled: a.get_iat_enabled(),
                     webp_lossless: a.get_webp_lossless(),
                     notify: a.get_notify(),
                 },
@@ -397,6 +495,47 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     });
     let cancel = Arc::new(AtomicBool::new(false));
+    let weak = app.as_weak();
+    let s = state.clone();
+    app.on_clear_selection(move || {
+        let a = weak.unwrap();
+        s.borrow_mut().files.clear();
+        a.set_selected_count(0);
+        a.set_ready(false);
+        a.set_progress(0.0);
+        a.set_phase(0);
+        a.set_log("".into());
+    });
+    let weak = app.as_weak();
+    let s = state.clone();
+    app.on_clear_folders(move || {
+        let a = weak.unwrap();
+        s.borrow_mut().output = None;
+        s.borrow_mut().files.clear();
+        a.set_source_folder("".into());
+        a.set_output_path("".into());
+        a.set_selected_count(0);
+        a.set_ready(false);
+        a.set_progress(0.0);
+        a.set_phase(0);
+        a.set_log("".into());
+        a.invoke_preferences_changed();
+    });
+    let weak = app.as_weak();
+    let chosen_iat_path = raw_iat_path.clone();
+    app.on_choose_iat(move || {
+        let path = rfd::FileDialog::new()
+            .add_filter("iat.exe", &["exe"])
+            .pick_file();
+        let a = weak.unwrap();
+        *chosen_iat_path.borrow_mut() = path.clone().unwrap_or_default();
+        a.set_iat_path(
+            path.map(|p| engine::display_path(&p))
+                .unwrap_or_default()
+                .into(),
+        );
+        a.invoke_preferences_changed();
+    });
     let worker = Rc::new(RefCell::new(None::<std::thread::JoinHandle<()>>));
     let weak = app.as_weak();
     let s = state.clone();
@@ -405,7 +544,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .add_filter(
                 i18n::text(weak.unwrap().get_language_index(), 24),
                 &[
-                    "webp", "png", "jpg", "jpeg", "avif", "psd", "tif", "tiff", "jxl",
+                    "webp", "png", "jpg", "jpeg", "avif", "psd", "psb", "tif", "tiff", "jxl",
                 ],
             )
             .pick_files()
@@ -422,7 +561,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 s.files
                     .iter()
                     .take(200)
-                    .map(|p| engine::display_path(&p))
+                    .map(engine::display_path)
                     .collect::<Vec<_>>()
                     .join("\n")
                     .into(),
@@ -460,7 +599,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         .files
                         .iter()
                         .take(200)
-                        .map(|p| engine::display_path(&p))
+                        .map(engine::display_path)
                         .chain(warnings)
                     {
                         log = append_log(&log, &line);
@@ -534,7 +673,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     jxl.on_start(move || {
         let j = jw.unwrap();
         let a = aw.unwrap();
-        if a.get_busy() || j.get_busy() {
+        if UI_CLOSING.load(Ordering::SeqCst) || a.get_busy() || j.get_busy() {
             return;
         }
         if let Some(previous) = slot.borrow_mut().take() {
@@ -562,7 +701,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let jw = jw.clone();
         let aw = aw.clone();
         let c = c.clone();
+        let work = WorkGuard::new();
         *slot.borrow_mut() = Some(std::thread::spawn(move || {
+            let _work = work;
             let result = engine::jpeg_reconstruction_with_warnings(
                 &tools,
                 &input,
@@ -610,6 +751,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let help_weak = help.as_weak();
     let completion_close = completion.as_weak();
     app.window().on_close_requested(move || {
+        UI_CLOSING.store(true, Ordering::SeqCst);
         close_cancel.store(true, Ordering::Relaxed);
         if let Some(window) = completion_close.upgrade() {
             let _ = window.hide();
@@ -626,6 +768,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if let Some(window) = jxl_weak.upgrade() {
             let _ = window.hide();
         }
+        // 關閉主視窗＝結束程式：明確結束事件迴圈，不依賴「最後一個可見視窗」計數
+        // （RC2 第三輪 M3：完成通知顯示時經自動化關閉，曾出現所有視窗隱藏但事件迴圈仍執行）。
+        let _ = slint::quit_event_loop();
+        start_exit_watchdog();
         slint::CloseRequestResponse::HideWindow
     });
     app.on_help(move || {
@@ -640,9 +786,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let jxl_weak = jxl.as_weak();
     let completion_weak = completion.as_weak();
     let start_report = report_file.clone();
+    let conversion_iat_path = raw_iat_path.clone();
     app.on_start(move || {
         let a = weak.unwrap();
-        if a.get_busy() {
+        if UI_CLOSING.load(Ordering::SeqCst) || a.get_busy() {
             return;
         }
         if let Some(window) = jxl_weak.upgrade() {
@@ -661,16 +808,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let format = engine::Format::from_index(a.get_format_index());
         let options = engine::Options {
             avif_quality: a.get_avif_quality().clamp(1, 100) as u8,
+            avif_lossless: a.get_avif_lossless(),
+            jxl_quality: a.get_jxl_quality().clamp(1, 99) as u8,
+            jxl_lossless: a.get_jxl_lossless(),
             webp_lossless: a.get_webp_lossless(),
             target_icc: if a.get_target_icc().is_empty() {
                 None
             } else {
                 Some(PathBuf::from(a.get_target_icc().as_str()))
             },
+            ..Default::default()
         };
         let notify = a.get_notify();
+        let iat_enabled = a.get_iat_enabled();
+        let iat_path = conversion_iat_path.borrow().clone();
         a.set_busy(true);
         a.set_progress(0.0);
+        a.set_completed_count(0);
+        a.set_active_stage("".into());
         a.set_log("".into());
         a.set_successes(0);
         a.set_warning_files(0);
@@ -688,12 +843,71 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if let Some(previous) = worker_slot.borrow_mut().take() {
             let _ = previous.join();
         }
+        a.set_validation_count(0);
+        a.set_validation_queued(0);
+        let work = WorkGuard::new();
         let handle = std::thread::spawn(move || {
-            let warning_journal = std::sync::Mutex::new(batch_warnings::Journal::new(&folder));
+            let _work = work;
+            let external = if iat_enabled {
+                match std::env::current_exe()
+                    .map_err(|e| e.to_string())
+                    .and_then(|exe| iat::Client::discover(Some(&iat_path), &exe))
+                {
+                    Ok(client) => Some(client),
+                    Err(e) => {
+                        let line = format!("{}（{e}）", i18n::v14(lang, 15));
+                        let _ = weak.upgrade_in_event_loop(move |a| {
+                            a.set_log(append_log(&a.get_log(), &line).into())
+                        });
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+            let warning_journal =
+                Arc::new(std::sync::Mutex::new(batch_warnings::Journal::new(&folder)));
             let done = AtomicUsize::new(0);
             let failed = AtomicUsize::new(0);
             let cancelled = AtomicUsize::new(0);
-            let system_stopped = AtomicBool::new(false);
+            let system_stopped = Arc::new(AtomicBool::new(false));
+            let validation_submitted = AtomicUsize::new(0);
+            type Validation = (PathBuf, PathBuf, Vec<String>);
+            let validation_queue = external.map(|client| {
+                let journal = warning_journal.clone();
+                let stopped = system_stopped.clone();
+                let cancel = c.clone();
+                let ui = weak.clone();
+                validation_queue::Queue::new(8, move |(input, output, mut warnings): Validation| {
+                    let result = client.compare(&input, &output, &cancel);
+                    let text = result.localized(lang);
+                    if !result.is_verified() {
+                        warnings.push(text.clone());
+                    }
+                    if journal.lock().unwrap().record(&input, &warnings).is_err() {
+                        stopped.store(true, Ordering::Relaxed);
+                    }
+                    let line = format!("{}: {text}", engine::display_path(&output));
+                    let _ = ui.upgrade_in_event_loop(move |a| {
+                        a.set_validation_count(a.get_validation_count() + 1);
+                        a.set_validation_queued(
+                            a.get_validation_queued().max(a.get_validation_count()),
+                        );
+                        a.set_log(append_log(&a.get_log(), &line).into());
+                    });
+                })
+            });
+            let validation_queue = match validation_queue {
+                Some(Ok(queue)) => Some(queue),
+                Some(Err(e)) => {
+                    let line = format!("{}（{e}）", i18n::v14(lang, 15));
+                    let _ = weak.upgrade_in_event_loop(move |a| {
+                        a.set_log(append_log(&a.get_log(), &line).into())
+                    });
+                    None
+                }
+                None => None,
+            };
             let workers = std::thread::available_parallelism()
                 .map(|n| n.get())
                 .unwrap_or(1)
@@ -708,30 +922,82 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             return;
                         }
                         if !c.load(Ordering::Relaxed) {
-                            let line = format!("{}: {}", i18n::text(lang, 16), engine::display_path(&input));
+                            let line = format!(
+                                "{}: {}",
+                                i18n::text(lang, 16),
+                                engine::display_path(input)
+                            );
                             let _ = weak.upgrade_in_event_loop(move |a| {
                                 a.set_log(append_log(&a.get_log(), &line).into());
                             });
                         }
-                        let result = engine::convert_with_options(
-                            &engine, input, &folder, format, &options, &c,
+                        let stage_weak = weak.clone();
+                        let name = input
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .into_owned();
+                        let result = engine::convert_with_progress(
+                            &engine,
+                            input,
+                            &folder,
+                            format,
+                            &options,
+                            &c,
+                            move |stage| {
+                                let text =
+                                    format!("{}：{name}", i18n::v14(lang, 8 + usize::from(stage)));
+                                let _ = stage_weak.upgrade_in_event_loop(move |a| {
+                                    a.set_active_stage(text.into())
+                                });
+                            },
                         );
                         let line = match result {
                             Ok((p, verification)) => {
-                                if warning_journal
-                                    .lock()
-                                    .unwrap()
-                                    .record(input, &verification.warnings)
-                                    .is_err()
+                                let mut reported_warnings = verification.warnings.clone();
+                                let mut record_here = true;
+                                let mut external_text = String::new();
+                                if let Some(queue) = &validation_queue {
+                                    match queue.submit((
+                                        input.clone(),
+                                        p.clone(),
+                                        reported_warnings.clone(),
+                                    )) {
+                                        Ok(()) => {
+                                            let queued = validation_submitted
+                                                .fetch_add(1, Ordering::Relaxed)
+                                                + 1;
+                                            let _ = weak.upgrade_in_event_loop(move |a| {
+                                                a.set_validation_queued(
+                                                    a.get_validation_queued().max(queued as i32),
+                                                )
+                                            });
+                                            record_here = false;
+                                            external_text = format!("\n  {}", i18n::v14(lang, 17));
+                                        }
+                                        Err(_) => {
+                                            let text = i18n::v14(lang, 18).to_owned();
+                                            reported_warnings.push(text.clone());
+                                            external_text = format!("\n  {text}");
+                                        }
+                                    }
+                                }
+                                if record_here
+                                    && warning_journal
+                                        .lock()
+                                        .unwrap()
+                                        .record(input, &reported_warnings)
+                                        .is_err()
                                 {
                                     system_stopped.store(true, Ordering::Relaxed);
                                 }
                                 format!(
-                                    "{}: {} → {}\n  {}",
+                                    "{}: {} → {}\n  {}{}",
                                     i18n::text(lang, 22),
-                                    engine::display_path(&input),
+                                    engine::display_path(input),
                                     engine::display_path(&p),
-                                    verification
+                                    verification,
+                                    external_text
                                 )
                             }
                             Err(e) if e == "已取消" => {
@@ -744,16 +1010,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 format!(
                                     "{}: {} — {}",
                                     i18n::text(lang, 21),
-                                    engine::display_path(&input),
+                                    engine::display_path(input),
                                     engine::localize_color_error(lang, &e)
                                 )
                             }
                         };
-                        done.fetch_add(1, Ordering::Relaxed);
+                        let finished = done.fetch_add(1, Ordering::Relaxed) + 1;
                         let total = files.len();
                         let _ = weak.upgrade_in_event_loop(move |a| {
                             a.set_log(append_log(&a.get_log(), &line).into());
-                            a.set_progress((a.get_progress() + 1.0 / total.max(1) as f32).min(1.0));
+                            a.set_completed_count(a.get_completed_count().max(finished as i32));
+                            a.set_progress(
+                                a.get_progress()
+                                    .max(finished as f32 / total.max(1) as f32)
+                                    .min(1.0),
+                            );
                         });
                     })
                 });
@@ -764,6 +1035,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     a.set_phase(5);
                 });
                 return;
+            }
+            if let Some(queue) = validation_queue {
+                let _ = weak
+                    .upgrade_in_event_loop(move |a| a.set_active_stage(i18n::v14(lang, 13).into()));
+                if queue.finish().is_err() {
+                    system_stopped.store(true, Ordering::Relaxed);
+                    let line = i18n::v14(lang, 18);
+                    let _ = weak.upgrade_in_event_loop(move |a| {
+                        a.set_log(append_log(&a.get_log(), line).into())
+                    });
+                }
             }
             let count = done.load(Ordering::Relaxed);
             let failures = failed.load(Ordering::Relaxed);
@@ -792,24 +1074,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 a.set_warning_report(report_file.set(warning_summary.path).into());
                 a.set_warning_report_error(warning_summary.error.unwrap_or_default().into());
                 a.set_cancelled(cancellations as i32);
+                a.set_completed_count(count as i32);
                 a.set_progress(count as f32 / files.len().max(1) as f32);
                 a.set_failures(failures as i32);
-                a.set_phase(if system_aborted { 5 } else if user_cancelled { 4 } else { 3 });
-                if notify && !stopped {
-                    if let Some(w) = completion_weak.upgrade() {
-                        w.set_words(a.get_words());
-                        w.set_status(a.get_status());
-                        w.set_report_path(a.get_warning_report());
-                        w.global::<Palette>()
-                            .set_color_scheme(a.global::<Palette>().get_color_scheme());
-                        let _ = w.show();
-                    }
+                a.set_phase(if system_aborted {
+                    5
+                } else if user_cancelled {
+                    4
+                } else {
+                    3
+                });
+                if notify
+                    && !stopped
+                    && !UI_CLOSING.load(Ordering::SeqCst)
+                    && let Some(w) = completion_weak.upgrade()
+                {
+                    w.set_words(a.get_words());
+                    w.set_status(a.get_status());
+                    w.set_report_path(a.get_warning_report());
+                    w.global::<Palette>()
+                        .set_color_scheme(a.global::<Palette>().get_color_scheme());
+                    let _ = w.show();
                 }
             });
         });
         *worker_slot.borrow_mut() = Some(handle);
     });
     let ui_result = app.run();
+    EVENT_LOOP_RETURNED.store(true, Ordering::SeqCst);
     cancel.store(true, Ordering::Relaxed);
     // Workers observe cancellation, terminate their ImageMagick child, and remove temporary files.
     if let Some(handle) = worker.borrow_mut().take() {
@@ -881,6 +1173,17 @@ fn load_warning_page(window: &WarningWindow, path: Option<&std::path::Path>, pag
 }
 
 fn apply_preferences(app: &AppWindow, about: &AboutWindow, help: &HelpWindow) {
+    app.set_v14_words(
+        std::rc::Rc::new(slint::VecModel::from(
+            i18n::V14
+                .iter()
+                .map(|row| {
+                    slint::SharedString::from(row[app.get_language_index().clamp(0, 3) as usize])
+                })
+                .collect::<Vec<_>>(),
+        ))
+        .into(),
+    );
     let lang = app.get_language_index();
     let words: slint::ModelRc<slint::SharedString> = Rc::new(slint::VecModel::from(
         i18n::TEXT
@@ -903,7 +1206,7 @@ fn apply_preferences(app: &AppWindow, about: &AboutWindow, help: &HelpWindow) {
             i18n::text(lang, 51),
             i18n::text(lang, 46),
             i18n::text(lang, 52),
-            engine::display_path(&engine::locate_engine()),
+            engine::display_path(engine::locate_engine()),
             i18n::text(lang, 33),
         )
         .into(),

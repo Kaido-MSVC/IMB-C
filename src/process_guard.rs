@@ -74,6 +74,44 @@ impl ProcessGuard {
     pub(super) fn handle(&self) -> *mut c_void {
         self.0.as_raw_handle()
     }
+    #[cfg(test)]
+    pub(super) fn process_handles(&self) -> io::Result<Vec<OwnedHandle>> {
+        #[repr(C)]
+        struct Ids {
+            assigned: u32,
+            listed: u32,
+            ids: [usize; 64],
+        }
+        #[link(name = "kernel32")]
+        unsafe extern "system" {
+            fn OpenProcess(access: u32, inherit: i32, pid: u32) -> *mut c_void;
+        }
+        let mut ids = Ids {
+            assigned: 0,
+            listed: 0,
+            ids: [0; 64],
+        };
+        if unsafe {
+            QueryInformationJobObject(
+                self.handle(),
+                3,
+                (&mut ids as *mut Ids).cast(),
+                std::mem::size_of_val(&ids) as u32,
+                std::ptr::null_mut(),
+            )
+        } == 0
+        {
+            return Err(io::Error::last_os_error());
+        }
+        let mut handles = Vec::new();
+        for &pid in ids.ids.iter().take(ids.listed as usize) {
+            let handle = unsafe { OpenProcess(0x101000, 0, pid as u32) };
+            if !handle.is_null() {
+                handles.push(unsafe { OwnedHandle::from_raw_handle(handle) });
+            }
+        }
+        Ok(handles)
+    }
     /// 整個 Job（含後代）由核心累計的寫入位元組，涵蓋任何路徑、已刪除仍開啟的檔案與管線。
     /// 不含記憶體對應頁面由系統回寫的資料；這是累計 I/O 觀察，不是檔案系統硬配額。
     pub(super) fn write_bytes(&self) -> io::Result<u64> {
@@ -145,11 +183,88 @@ impl ProcessGuard {
         }
         Ok(())
     }
+    /// 只管理外部工具生命週期；不設 UI、breakaway 或記憶體限制，以相容工具自身的 worker Job。
+    pub(super) fn external_with_memory(memory: usize) -> io::Result<Self> {
+        let handle = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
+        if handle.is_null() {
+            return Err(io::Error::last_os_error());
+        }
+        let guard = Self(unsafe { OwnedHandle::from_raw_handle(handle) });
+        let mut limits = ExtendedLimits::default();
+        limits.basic.flags = 0x2000 | 0x200; // KILL_ON_JOB_CLOSE | JOB_MEMORY，獨立於引擎 Job。
+        limits.job_memory = memory;
+        if unsafe {
+            SetInformationJobObject(
+                handle,
+                9,
+                (&limits as *const ExtendedLimits).cast(),
+                std::mem::size_of_val(&limits) as u32,
+            )
+        } == 0
+        {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(guard)
+    }
     #[cfg(test)]
     pub(super) fn new() -> io::Result<Self> {
         Self::with_memory_limit(6usize * 1024 * 1024 * 1024)
     }
+    /// 受控 ImageMagick／JXL 引擎專用：只允許引擎本身一個作用中程序（另有
+    /// CHILD_PROCESS_POLICY 在建立時禁止子程序）、未處理例外直接結束不出現對話方塊，
+    /// 並套用全部 UI 限制（剪貼簿、全域 atom、桌面、系統參數、登出、他程序 USER 控制代碼）。
+    pub(super) fn engine(memory: usize) -> io::Result<Self> {
+        let guard = Self::create_limited(memory, 0x2000 | 0x200 | 0x8 | 0x400, 1)?;
+        let restrictions: u32 = 0xff; // JOB_OBJECT_UILIMIT_ALL
+        if unsafe {
+            SetInformationJobObject(
+                guard.handle(),
+                4, // JobObjectBasicUIRestrictions
+                (&restrictions as *const u32).cast(),
+                4,
+            )
+        } == 0
+        {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(guard)
+    }
+    #[cfg(test)]
+    pub(super) fn ui_restrictions(&self) -> io::Result<(u32, u32, u32)> {
+        let mut ui = 0u32;
+        if unsafe {
+            QueryInformationJobObject(
+                self.handle(),
+                4,
+                (&mut ui as *mut u32).cast(),
+                4,
+                std::ptr::null_mut(),
+            )
+        } == 0
+        {
+            return Err(io::Error::last_os_error());
+        }
+        let mut info = ExtendedLimits::default();
+        if unsafe {
+            QueryInformationJobObject(
+                self.handle(),
+                9,
+                (&mut info as *mut ExtendedLimits).cast(),
+                std::mem::size_of_val(&info) as u32,
+                std::ptr::null_mut(),
+            )
+        } == 0
+        {
+            return Err(io::Error::last_os_error());
+        }
+        Ok((ui, info.basic.flags, info.basic.active_processes))
+    }
+    /// 一般測試輔助 Job（允許程序樹）；正式引擎一律使用 `engine`。
+    #[cfg(test)]
     pub(super) fn with_memory_limit(memory: usize) -> io::Result<Self> {
+        Self::create_limited(memory, 0x2000 | 0x200 | 0x8, 8)
+    }
+    fn create_limited(memory: usize, flags: u32, active: u32) -> io::Result<Self> {
         // 空安全屬性使控制代碼不被子程序繼承，父程序退出會關閉最後持有者。
         let handle = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
         if handle.is_null() {
@@ -157,8 +272,9 @@ impl ProcessGuard {
         }
         let guard = Self(unsafe { OwnedHandle::from_raw_handle(handle) });
         let mut limits = ExtendedLimits::default();
-        limits.basic.flags = 0x2000 | 0x200 | 0x8; // KILL_ON_JOB_CLOSE | JOB_MEMORY | ACTIVE_PROCESS
-        limits.basic.active_processes = 8;
+        // KILL_ON_JOB_CLOSE | JOB_MEMORY | ACTIVE_PROCESS（| DIE_ON_UNHANDLED_EXCEPTION）
+        limits.basic.flags = flags;
+        limits.basic.active_processes = active;
         limits.job_memory = memory;
         // JobObjectExtendedLimitInformation = 9；結構符合 Windows x64 SDK。
         if unsafe {
@@ -249,6 +365,51 @@ fn spawn_failure(primary: io::Error, wait: io::Result<()>, tree: io::Result<()>)
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn external_job_enforces_reserved_commit_limit() {
+        let dir = tempfile::tempdir().unwrap();
+        let gate = dir.path().join("ready");
+        let guard = super::ProcessGuard::external_with_memory(256 * 1024 * 1024).unwrap();
+        let mut cmd = std::process::Command::new(std::env::current_exe().unwrap());
+        cmd.args(["memory_child_fixture", "--ignored", "--test-threads=1"])
+            .env("IMBC_SECURITY_MEMORY_CHILD", &gate)
+            .stdout(std::process::Stdio::null());
+        let mut child = guard.spawn(&mut cmd).unwrap();
+        std::fs::write(gate, b"ready").unwrap();
+        assert!(child.wait().unwrap().success());
+        guard.stop_and_wait().unwrap();
+        // PeakJobMemoryUsed 可能包含遭拒的配置嘗試；以設定值與實際配置遭拒作為驗證。
+        let mut info = ExtendedLimits::default();
+        assert_ne!(
+            unsafe {
+                QueryInformationJobObject(
+                    guard.handle(),
+                    9,
+                    (&mut info as *mut ExtendedLimits).cast(),
+                    std::mem::size_of_val(&info) as u32,
+                    std::ptr::null_mut(),
+                )
+            },
+            0
+        );
+        assert_eq!(info.job_memory, 256 * 1024 * 1024);
+        assert_ne!(info.basic.flags & 0x200, 0);
+    }
+    #[test]
+    fn engine_job_has_ui_single_process_and_crash_limits() {
+        let guard = super::ProcessGuard::engine(256 * 1024 * 1024).unwrap();
+        let (ui, flags, active) = guard.ui_restrictions().unwrap();
+        assert_eq!(ui, 0xff, "全部 UI 限制");
+        // KILL_ON_JOB_CLOSE | JOB_MEMORY | ACTIVE_PROCESS | DIE_ON_UNHANDLED_EXCEPTION
+        assert_eq!(flags & 0x2608, 0x2608);
+        assert_eq!(active, 1);
+        // 一般（非引擎）Job 不受影響，仍允許測試輔助程序樹。
+        let (ui, flags, active) = super::ProcessGuard::with_memory_limit(256 * 1024 * 1024)
+            .unwrap()
+            .ui_restrictions()
+            .unwrap();
+        assert_eq!((ui, flags & 0x400, active), (0, 0, 8));
+    }
     #[test]
     fn spawn_failure_keeps_primary_and_both_cleanup_errors() {
         let error = super::spawn_failure(

@@ -22,6 +22,18 @@ unsafe extern "system" {
     fn GlobalMemoryStatusEx(status: *mut MemoryStatus) -> i32;
 }
 
+pub(super) fn external_ceiling_mib() -> u64 {
+    let mut status = MemoryStatus {
+        length: std::mem::size_of::<MemoryStatus>() as u32,
+        ..Default::default()
+    };
+    // SAFETY: MemoryStatus matches MEMORYSTATUSEX and is initialized for the API.
+    if unsafe { GlobalMemoryStatusEx(&mut status) } == 0 {
+        return 1024;
+    }
+    (status.total_phys / 2).min(status.avail_page.saturating_sub(2048 * MIB)) / MIB
+}
+
 pub(super) struct Lease(
     pub(super) usize,
     #[allow(dead_code)] instance_ledger::Reservation,
@@ -29,7 +41,7 @@ pub(super) struct Lease(
 impl Lease {
     pub(super) fn acquire(
         requested_mib: u64,
-        mut check: impl FnMut() -> Result<(), String>,
+        check: impl FnMut() -> Result<(), String>,
     ) -> Result<Self, String> {
         let requested = match std::env::var("IMBC_ENGINE_MEMORY_MIB") {
             Ok(value) => value
@@ -40,6 +52,21 @@ impl Lease {
             Err(std::env::VarError::NotPresent) => requested_mib,
             Err(_) => return Err("IMBC_ENGINE_MEMORY_MIB 無法讀取".into()),
         } * MIB;
+        Self::reserve(requested, check)
+    }
+    pub(super) fn external(
+        requested_mib: u64,
+        check: impl FnMut() -> Result<(), String>,
+    ) -> Result<Self, String> {
+        if !(16..=8192).contains(&requested_mib) {
+            return Err("外部驗證記憶體預算超限".into());
+        }
+        Self::reserve(requested_mib * MIB, check)
+    }
+    fn reserve(
+        requested: u64,
+        mut check: impl FnMut() -> Result<(), String>,
+    ) -> Result<Self, String> {
         let ledger = instance_ledger::global().map_err(|e| e.to_string())?;
         loop {
             check()?;

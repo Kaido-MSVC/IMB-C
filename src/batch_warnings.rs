@@ -64,7 +64,7 @@ impl Journal {
             if self.summary.error.is_none() {
                 let detail = format!(
                     "警告報告無法完整保存：{e}；來源 {}；本次警告：{}",
-                    crate::engine::display_path(&input),
+                    crate::engine::display_path(input),
                     warnings.join("；")
                 );
                 self.summary.error = Some(detail.chars().take(8192).collect());
@@ -102,7 +102,7 @@ impl Journal {
             f,
             "[{}] Source: {}",
             self.summary.files,
-            crate::engine::display_path(&input)
+            crate::engine::display_path(input)
         )?;
         for warning in warnings {
             writeln!(f, "Warning: {warning}")?;
