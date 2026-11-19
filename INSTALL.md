@@ -1,30 +1,11 @@
-# IMB-C v1.3.3 — 安裝與升級說明
+# 安裝 IMB-C v2.0.0
 
-EXE 與 MSI 均未簽章，Windows 可能顯示 SmartScreen 警告或「未知的發行者」。執行前請先依 README.md 的「未簽章：核對 SHA-256 與 SmartScreen 放行」核對下載檔。
+1. 在下載資料夾以 `Get-FileHash .\IMB-C-v2.0.0-x64.msi -Algorithm SHA256` 計算雜湊，與同批 `SHA256SUMS.txt` 比對。Portable 與 Source ZIP 也用相同方式核對。雜湊不符時請重新取得檔案。
+2. 關閉正在執行的 IMB-C。若已安裝 IMB-C 1.4 RC 系列，先在 Windows 的「已安裝的應用程式」解除安裝該候選版。
+3. 開啟 MSI，閱讀及接受完整 [Microsoft Runtime 接收條款](RUNTIME-RECIPIENT-TERMS.md)，選擇安裝位置後完成安裝。安裝程式會新增開始功能表捷徑，可選擇建立桌面捷徑。
 
-## 安裝與解除安裝
+MSI 沿用正式版升級家族。從 v1.3.3 等較舊正式 MSI 升級時會移除舊版程式，並預設沿用仍存在的既有安裝位置。全新安裝預設使用 `%ProgramFiles%\IMB-C`。使用者偏好位於 `%LOCALAPPDATA%\IMB-C`，安裝程式的移除清單只包含安裝程式所管理的資源。升級前可備份偏好。
 
-- Portable：完整解壓 IMB-C-v1.3.3-Portable.zip，再開啟 imb-c.exe。保留 ImageMagick、JXL、DLL、licenses、source 等全部內容，不要只移動 EXE。
-- MSI：執行 IMB-C-v1.3.3-x64.msi。需要 x64 Windows 10/11 與管理員權限。依序閱讀完整授權並同意、選擇安裝目錄、確認捷徑選項、安裝。預設 Program Files\IMB-C；開始功能表建立 IMB-C 捷徑，桌面捷徑預設不勾選。
-- 暫存目錄：轉檔前需要已存在的本機 NTFS 資料夾，預設 `D:\ImageMagick-Temp`，或以環境變數 `MAGICK_TEMPORARY_PATH` 指定本機路徑。不會自動改用 C 槽；設成網路路徑時會改用本機暫存，並在警告中說明實際路徑。
-- 解除安裝：Windows 設定 → 應用程式 → 已安裝的應用程式 → IMB-C v1.3.3 Personal Use（發行者 Kaido-MSVC）→ 解除安裝；也可重新執行相同 MSI 使用維護畫面。無需手動刪除程式目錄。
-- 從 1.3.2 或更早版本升級：先關閉 IMB-C，再直接執行新版 MSI，不需要先解除安裝。同一 UpgradeCode、新 ProductCode；安裝程式會移除舊版，沿用有效的既有安裝位置，明示位置優先，失效的舊位置回到預設。已安裝 1.3.3 時無法再安裝較舊版本。
-- 1.3.0 在「已安裝的應用程式」顯示的發行者是 IMB-C，1.3.1 起改為 Kaido-MSVC；升級後只會留下 1.3.3 一筆。
-- 本 MSI 不啟用同版 major upgrade；不要混裝內容不同但版號同為 1.3.3 的安裝包（包括開發期間的 1.3.3 候選測試包）。完整解除安裝後不永久記住 MSI 路徑，使用者 LocalAppData 偏好保留。
-- Portable 升級：關閉 IMB-C，刪除舊的程式資料夾，再解壓 1.3.3。偏好設定保存在 %LOCALAPPDATA%\IMB-C\preferences.ini，不受影響。
-- 必要 MSVC runtime 已隨應用私有部署；不另修改或升級系統 runtime。Windows UCRT／系統 DLL 由受支援 Windows 提供。
-- 隨附私有 ImageMagick，不需要也不使用系統安裝的 ImageMagick。
+靜默安裝前須閱讀並明確接受條款，再使用 `msiexec /i IMB-C-v2.0.0-x64.msi /qn ACCEPTTERMS=1`。
 
-## 完整材料
-
-Portable 與 MSI 均直接內含完整第三方授權／告知、Microsoft Runtime 條款、LGPL 對應來源及重建／替換指引。licenses/wix-7.0.0 包含 WiX 7.0.0 原授權、OSMFEULA、官方完整來源 ZIP，以及本版修改過的安裝定義產生器（IMB-C-v1.3.3-authoring）。source 內含 1.3.3 應用程式與安裝定義來源 ZIP（IMB-C-v1.3.3-app-source.zip），以及沿用的 1.3.0 第三方相應來源 ZIP。1.3.3 更新的 ImageMagick 7.1.2-35、libheif 1.23.7、libjxl 0.13.0／Brotli 1.2.1 的來源、修改與建置材料位於 licenses/security-20261112、licenses/security-20261113、licenses/avif 與 licenses/jxl-tools；另附的完整來源 ZIP 含 libjxl／Brotli／Highway 固定 commit 的來源快照。無需另找外附補充包才能取得必要材料。
-MSI 授權畫面含完整 Runtime 原文與第三方條款，包括 WiX 原文。
-WiX 衍生／修改的安裝 UI 定義依隨附 MS-RL 提供，未將應用程式或其他元件改授權。
-
-## 使用條款
-
-公開發行的告知與 Microsoft Runtime 使用條款見 README.md 的「Microsoft Runtime 條款」。RUNTIME-HANDOFF.md、RUNTIME-RECIPIENT-TERMS.md 等好友交付文件、歷史 v1.2 文件與候選驗收報告保留作沿革，不再是現行交付程序。
-
-## 功能界線
-
-HDR 僅聲明已驗證 ICC PQ／HLG 路徑的像素與 ICC；不宣稱完整 HDR metadata、CICP-only、CLLI、mastering display、gain map、全部 EXIF/XMP 或所有檢視器顯示均保留；不含 tone mapping。JPEG 原始 bytes 完整還原僅適用專用 JPEG↔JXL 工具。1.3.3 的安全強化、行為變更、殘餘風險與已知限制見 RELEASE-NOTES-1.3.3.md。
+Portable 使用前請先閱讀完整 Runtime 接收條款，使用所附 Microsoft Runtime 即表示同意。核對 ZIP 後完整解壓到新資料夾，再開啟 `imb-c.exe`。CLI 請從 PowerShell 或命令提示字元執行 `imb-c-cli.exe --help`。請保留執行檔、`ImageMagick`、`JXL`、授權與來源材料的相對位置。Portable 與 MSI 會讀取同一份使用者偏好。

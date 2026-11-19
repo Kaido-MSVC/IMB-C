@@ -1,0 +1,32 @@
+import { Palette } from "std-widgets.slint";
+
+export global Theme {
+    out property <brush> surface: Palette.background;
+    out property <brush> canvas: Palette.alternate-background;
+    out property <brush> ink: Palette.foreground;
+    out property <brush> muted: Palette.foreground.with-alpha(0.72);
+    out property <brush> outline: Palette.foreground.with-alpha(0.19);
+    out property <brush> accent: Palette.accent-background;
+    out property <length> gutter: 20px;
+    out property <length> gap: 12px;
+    out property <length> control: 34px;
+}
+
+export component Panel inherits Rectangle {
+    background: Theme.surface;
+    border-color: Theme.outline;
+    border-width: 1px;
+    border-radius: 12px;
+}
+
+export component Heading inherits Text {
+    color: Theme.ink;
+    font-size: 19px;
+    font-weight: 650;
+}
+
+export component Caption inherits Text {
+    color: Theme.muted;
+    font-size: 13px;
+    wrap: word-wrap;
+}

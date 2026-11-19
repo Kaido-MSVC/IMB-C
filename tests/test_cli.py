@@ -160,7 +160,7 @@ class CliTests(unittest.TestCase):
             self.assertEqual(result.returncode, 1, result.stderr)
             rows = [json.loads(line) for line in result.stdout.splitlines()]
             self.assertEqual(sorted(row["status"] for row in rows), ["completed", "failed"])
-            self.assertEqual(json.loads(report.read_text())["exit_code"], 1)
+            self.assertEqual(json.loads(report.read_text(encoding="utf-8"))["exit_code"], 1)
             self.assertEqual(hashlib.sha256(original.read_bytes()).digest(), before)
             self.assertEqual(sentinel.read_bytes(), b"existing output")
             self.assertEqual(broken.read_bytes(), b"invalid")

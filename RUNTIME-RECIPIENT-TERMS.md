@@ -1,8 +1,8 @@
-# IMB-C 1.4.0-rc.2：Microsoft Visual C++ Runtime 接收條款
+# IMB-C 2.0.0：Microsoft Visual C++ Runtime 接收條款
 
-固定版本：IMBC-RUNTIME-1.4.0-rc.2-r3。
+固定版本：IMBC-RUNTIME-2.0.0-r1。
 
-本文件適用於隨 IMB-C 1.4.0-rc.2 Portable ZIP 與 MSI 提供的 Microsoft Visual C++ Runtime 檔案。下方附錄為 Microsoft 官方英文條款全文，中文與英文說明只描述適用範圍，不取代官方全文；說明與官方全文不一致時，以官方全文為準。
+本文件適用於隨 IMB-C 2.0.0 Portable ZIP 與 MSI 提供的 Microsoft Visual C++ Runtime 檔案。下方附錄為 Microsoft 官方英文條款全文，中文與英文說明只描述適用範圍，不取代官方全文；說明與官方全文不一致時，以官方全文為準。
 
 1. 適用檔案：`ImageMagick` 目錄內的 `MSVCP140.dll`、`vcruntime140.dll`、`vcruntime140_1.dll`（Microsoft C/C++ Runtime）與 `vcomp140.dll`（Microsoft C/C++ OpenMP Runtime），共四份，檔案版本 14.52.37029.0，均為 Microsoft 簽署、未經修改的原檔，所有權屬於 Microsoft 及其供應商。IMB-C 的 `imb-c.exe` 與 `imb-c-cli.exe` 以靜態 CRT 建置，不載入這些 DLL；它們只供隨包的 ImageMagick 引擎及其模組使用。
 2. 使用這些檔案，即表示您同意下方附錄的 Microsoft 官方條款（Microsoft Visual C++ V14 Redistributable and Runtime，Last Updated: October 1, 2025，EULA ID: Cpp_v14_ENU.1033），包括其中的技術限制、反向工程限制及其例外、貿易法令、擔保排除與責任限制。
@@ -13,7 +13,7 @@
 
 ## English summary
 
-This document covers the four unmodified, Microsoft-signed Visual C++ Runtime files (version 14.52.37029.0) in the `ImageMagick` folder of the IMB-C 1.4.0-rc.2 Portable ZIP and MSI. `imb-c.exe` and `imb-c-cli.exe` are built with the static CRT and do not load them; only the bundled ImageMagick engine does. By using these files you agree to the official Microsoft license terms reproduced below, which prevail over this summary. Do not extract, modify, redistribute or separately provide these files, and do not remove Microsoft notices. The MSI asks you to accept these terms in its license dialog; for the Portable ZIP, using the files means you accept them. If you do not agree, do not install or use IMB-C. IMB-C does not record acceptance and does not restrict conversion. Open-source components, including the LGPL libraries, remain under their own licenses; the rights to modify and replace LGPL libraries, to reverse-engineer for debugging such modifications, and to obtain the corresponding source are not restricted by this document.
+This document covers the four unmodified, Microsoft-signed Visual C++ Runtime files (version 14.52.37029.0) in the `ImageMagick` folder of the IMB-C 2.0.0 Portable ZIP and MSI. `imb-c.exe` and `imb-c-cli.exe` are built with the static CRT and do not load them; only the bundled ImageMagick engine does. By using these files you agree to the official Microsoft license terms reproduced below, which prevail over this summary. Do not extract, modify, redistribute or separately provide these files, and do not remove Microsoft notices. The MSI asks you to accept these terms in its license dialog; for the Portable ZIP, using the files means you accept them. If you do not agree, do not install or use IMB-C. IMB-C does not record acceptance and does not restrict conversion. Open-source components, including the LGPL libraries, remain under their own licenses; the rights to modify and replace LGPL libraries, to reverse-engineer for debugging such modifications, and to obtain the corresponding source are not restricted by this document.
 
 官方來源 / Official source: https://visualstudio.microsoft.com/license-terms/vs2026-ga-visualcpp-v14-redist-runtime/
 官方 DOCX 原件 / Official DOCX: `licenses/microsoft/Runtime-2026.docx`，SHA-256 `08651651a7602fc7c0e2763de0fde1ff9f868df2780597cd1775ee9d6441c783`。

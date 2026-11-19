@@ -2178,7 +2178,7 @@ checksum = "65b27460c2c92b037f3f94c538ed9a3342f3fdf923606781629ccb35f82d042a"
 
 [[package]]
 name = "imb-c"
-version = "1.4.0-rc.2"
+version = "2.0.0"
 dependencies = [
  "rayon",
  "rfd",
@@ -3946,6 +3946,7 @@ dependencies = [
  "const-field-offset",
  "i-slint-backend-linuxkms",
  "i-slint-backend-selector",
+ "i-slint-backend-winit",
  "i-slint-common",
  "i-slint-core",
  "i-slint-core-macros",

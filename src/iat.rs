@@ -15,6 +15,19 @@ use std::{
 const STREAM_LIMIT: u64 = 1024 * 1024;
 const REPORT_LIMIT: u64 = 8 * 1024 * 1024;
 static SLOT: Mutex<()> = Mutex::new(());
+
+fn acquire_slot(cancel: &AtomicBool) -> Result<std::sync::MutexGuard<'static, ()>, String> {
+    loop {
+        if cancel.load(Ordering::Relaxed) {
+            return Err("未完成（已取消）".into());
+        }
+        match SLOT.try_lock() {
+            Ok(slot) => return Ok(slot),
+            Err(TryLockError::WouldBlock) => std::thread::sleep(Duration::from_millis(25)),
+            Err(TryLockError::Poisoned(_)) => return Err("外部驗證排程不可用".into()),
+        }
+    }
+}
 type ProcessOutput = Result<(i32, Vec<u8>, Vec<u8>), String>;
 
 #[derive(Clone, Debug)]
@@ -262,6 +275,15 @@ fn run_budgeted(
 impl Client {
     /// 只找設定的絕對路徑，再找應用程式旁，不搜尋 PATH／工作目錄。
     pub fn discover(configured: Option<&Path>, application: &Path) -> Result<Self, String> {
+        Self::probe(configured, application, &AtomicBool::new(false)).map(|(client, _)| client)
+    }
+
+    /// 使用同一個受控版本探測流程，供桌面設定及批次取消操作使用。
+    pub fn probe(
+        configured: Option<&Path>,
+        application: &Path,
+        cancel: &AtomicBool,
+    ) -> Result<(Self, (u64, u64, u64)), String> {
         if !application.is_absolute() {
             return Err("應用程式路徑必須是絕對路徑".into());
         }
@@ -276,14 +298,15 @@ impl Client {
         if !executable.with_file_name("iat-worker.exe").is_file() {
             return Err("缺少 iat-worker.exe".into());
         }
+        let _slot = acquire_slot(cancel)?;
         let dir = crate::engine::ValidationTemp::new().map_err(|e| e.to_string())?;
-        let memory = crate::engine::reserve_validation_memory(128, &AtomicBool::new(false))?;
+        let memory = crate::engine::reserve_validation_memory(128, cancel)?;
         let probe = run_budgeted(
             &executable,
             &["--version".into()],
             dir.path(),
             Duration::from_secs(10),
-            &AtomicBool::new(false),
+            cancel,
             128,
         );
         if probe.as_ref().is_err_and(|e| e.starts_with("無法確認")) {
@@ -294,9 +317,12 @@ impl Client {
         let v = version(std::str::from_utf8(&stdout).map_err(|e| e.to_string())?)
             .ok_or("版本格式無效")?;
         if code != 0 || v < (0, 5, 1) {
-            return Err("需要 iat 0.5.1 以上".into());
+            return Err(format!(
+                "需要 iat 0.5.1 以上（iat {}.{}.{}）",
+                v.0, v.1, v.2
+            ));
         }
-        Ok(Self { executable })
+        Ok((Self { executable }, v))
     }
 
     /// 呼叫端必須先關閉輸出的寫入控制代碼；結果不刪除、覆寫任何圖片。
@@ -361,16 +387,7 @@ impl Client {
             .canonicalize()
             .map_err(|e| format!("輸出路徑無法解析：{e}"))?;
         // 最多一個外部驗證，避免兩個引擎工作再各啟動高記憶體解碼器。
-        let _slot = loop {
-            if cancel.load(Ordering::Relaxed) {
-                return Err("未完成（已取消）".into());
-            }
-            match SLOT.try_lock() {
-                Ok(slot) => break slot,
-                Err(TryLockError::WouldBlock) => std::thread::sleep(Duration::from_millis(25)),
-                Err(TryLockError::Poisoned(_)) => return Err("外部驗證排程不可用".into()),
-            }
-        };
+        let _slot = acquire_slot(cancel)?;
         let mut limits = BTreeMap::from([
             ("job_commit_mib".to_owned(), 1024),
             ("buffer_mib".to_owned(), 64),

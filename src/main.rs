@@ -7,9 +7,11 @@ mod i18n;
 mod iat;
 mod imports;
 mod preferences;
+mod ui_queue;
+mod ui_settings;
 mod validation_queue;
 use rayon::prelude::*;
-use slint::ComponentHandle;
+use slint::{ComponentHandle, winit_030::WinitWindowAccessor};
 use std::{
     cell::RefCell,
     path::PathBuf,
@@ -23,278 +25,10 @@ use std::{
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 slint::slint! {
-    import { VerticalBox, HorizontalBox, Button, ComboBox, ProgressIndicator, TextEdit, AboutSlint, CheckBox, ScrollView, SpinBox, LineEdit } from "std-widgets.slint";
     export { Palette } from "std-widgets.slint";
-    component FormatPicker inherits Rectangle {
-        in property <bool> enabled: true;
-        in-out property <int> current-index: 0;
-        callback selected();
-        property <[string]> formats: ["WebP", "PNG", "JPEG", "AVIF", "PSD", "TIFF", "JXL", "PSB"];
-        width: 180px; height: 34px; vertical-stretch: 0;
-        horizontal-stretch: 0;
-        Button { width: 100%; height: 100%; text: root.formats[root.current-index] + "  ▾"; enabled: root.enabled; clicked => { choices.show(); } }
-        choices := PopupWindow {
-            y: root.height; width: root.width; height: 304px;
-            close-policy: close-on-click-outside;
-            VerticalBox {
-                padding: 5px;
-                ScrollView {
-                    horizontal-scrollbar-policy: always-off;
-                    content-width: self.visible-width;
-                    content-height: root.formats.length * 36px;
-                    VerticalLayout {
-                        spacing: 0px;
-                        for item[index] in root.formats: Button {
-                            text: item; height: 36px;
-                            clicked => { root.current-index = index; root.selected(); choices.close(); }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    export component JxlWindow inherits Window {
-        in property <[string]> words;
-        title: "IMB-C · JPEG ↔ JXL";
-        icon: @image-url("../assets/app.png");
-        preferred-width: 760px; preferred-height: 470px; min-width: 700px; min-height: 440px;
-        in-out property <bool> busy: false;
-        in-out property <int> mode: 0;
-        in-out property <string> input-path;
-        in-out property <string> output-path;
-        in-out property <string> reference-path;
-        in-out property <string> result;
-        callback choose-input(); callback choose-output(); callback choose-reference();
-        callback start(); callback cancel();
-        VerticalBox {
-            padding: 20px; spacing: 12px;
-            Text { text: root.words[38]; wrap: word-wrap; }
-            ComboBox { model: [root.words[39], root.words[40]]; current-index <=> root.mode; enabled: !root.busy; }
-            HorizontalBox {
-                Button { text: root.words[7]; enabled: !root.busy; clicked => { root.choose-input(); } }
-                Text { text: root.input-path; overflow: elide; }
-            }
-            HorizontalBox {
-                Button { text: root.words[8]; enabled: !root.busy; clicked => { root.choose-output(); } }
-                Text { text: root.output-path; overflow: elide; }
-            }
-            if root.mode == 1: HorizontalBox {
-                Button { text: root.words[41]; enabled: !root.busy; clicked => { root.choose-reference(); } }
-                Text { text: root.reference-path; overflow: elide; }
-            }
-            HorizontalBox {
-                Button { text: root.words[10]; enabled: !root.busy && root.input-path != "" && root.output-path != ""; clicked => { root.start(); } }
-                Button { text: root.words[11]; enabled: root.busy; clicked => { root.cancel(); } }
-            }
-            TextEdit { text: root.result; read-only: true; vertical-stretch: 1; }
-        }
-    }
-    export component WarningWindow inherits Window {
-        in property <[string]> words;
-        title: "IMB-C · " + root.words[55];
-        icon: @image-url("../assets/app.png");
-        preferred-width: 800px; preferred-height: 600px;
-        in-out property <string> summary;
-        in-out property <string> report-path;
-        in-out property <string> report-error;
-        in-out property <string> content;
-        in-out property <int> page: 0;
-        in-out property <bool> has-previous: false;
-        in-out property <bool> has-next: false;
-        callback previous(); callback next(); callback open-report();
-        VerticalBox {
-            padding: 16px; spacing: 10px;
-            Text { text: root.summary; wrap: word-wrap; }
-            if root.report-path != "": HorizontalLayout {
-                spacing: 8px;
-                LineEdit { text: root.report-path; read-only: true; horizontal-stretch: 1; }
-                Button { text: root.words[60]; clicked => { root.open-report(); } }
-            }
-            TextEdit { text: root.content; read-only: true; vertical-stretch: 1; }
-            HorizontalBox {
-                Button { text: root.words[58]; enabled: root.has-previous; clicked => { root.previous(); } }
-                Text { text: (root.page + 1); vertical-alignment: center; }
-                Button { text: root.words[59]; enabled: root.has-next; clicked => { root.next(); } }
-            }
-        }
-    }
-    // Batch completion notice. The report path is a single-line, selectable field so a
-    // long path scrolls instead of breaking inside the file name.
-    export component CompletionWindow inherits Window {
-        in property <[string]> words;
-        in-out property <string> status;
-        in-out property <string> report-path;
-        callback open-report(); callback dismiss();
-        title: "IMB-C";
-        icon: @image-url("../assets/app.png");
-        preferred-width: 560px; min-width: 420px;
-        VerticalBox {
-            padding: 20px; spacing: 12px;
-            Text { text: root.status; wrap: word-wrap; }
-            if root.report-path != "": VerticalLayout {
-                spacing: 4px;
-                Text { text: root.words[62]; }
-                LineEdit { text: root.report-path; read-only: true; }
-            }
-            HorizontalLayout {
-                alignment: end; spacing: 8px;
-                if root.report-path != "": Button { text: root.words[60]; primary: true; clicked => { root.open-report(); } }
-                Button { text: root.words[61]; primary: root.report-path == ""; clicked => { root.dismiss(); } }
-            }
-        }
-    }
-    export component HelpWindow inherits Window {
-        in property <string> heading;
-        in property <string> content;
-        title: "IMB-C · " + root.heading;
-        icon: @image-url("../assets/app.png");
-        preferred-width: 740px; preferred-height: 620px;
-        min-width: 600px; min-height: 440px;
-        VerticalBox {
-            padding: 20px; spacing: 12px;
-            Text { text: root.heading; font-size: 21px; }
-            TextEdit { text: root.content; read-only: true; vertical-stretch: 1; }
-        }
-    }
-    export component AboutWindow inherits Window {
-        in property <[string]> words;
-        in property <string> product-title;
-        title: root.product-title;
-        icon: @image-url("../assets/app.png");
-        width: 680px; height: 600px;
-        in property <string> third-party-notices;
-        VerticalBox {
-            Text { text: root.product-title; font-size: 21px; }
-            Text { text: root.words[2] + "\n" + root.words[12]; wrap: word-wrap; }
-            AboutSlint { }
-            TextEdit { text: root.third-party-notices; read-only: true; vertical-stretch: 1; }
-        }
-    }
-    export component AppWindow inherits Window {
-        in property <[string]> words;
-        in property <string> product-title;
-        title: root.product-title;
-        icon: @image-url("../assets/app.png");
-        preferred-width: 840px; preferred-height: 820px; min-width: 800px; min-height: 780px;
-        in-out property <bool> busy: false;
-        in-out property <bool> ready: false;
-        in-out property <bool> recursive: false;
-        in-out property <int> selected-count: 0;
-        in-out property <string> selection: root.selected-count == 0 ? root.words[13] : root.words[25] + " " + root.selected-count + " " + root.words[26];
-        in-out property <string> output-path;
-        in-out property <string> destination: root.output-path == "" ? root.words[14] : root.output-path;
-        in-out property <int> phase: 0;
-        in-out property <int> successes: 0;
-        in-out property <int> warning-files: 0;
-        in-out property <int> warning-count: 0;
-        in-out property <string> warning-report;
-        in-out property <string> warning-report-error;
-        callback show-warnings();
-        in-out property <int> failures: 0;
-        in-out property <int> cancelled: 0;
-        in-out property <string> status: root.phase == 1 ? root.words[16] : root.phase == 2 ? root.words[17] : root.phase == 5 ? root.words[23] : root.phase >= 3 ? (root.phase == 4 ? root.words[18] : root.words[19]) + ": " + root.words[53] + " " + root.successes + ", " + root.words[54] + " " + root.warning-files + ", " + root.words[55] + " " + root.warning-count + ", " + root.words[21] + " " + root.failures + ", " + root.words[34] + " " + root.cancelled : root.words[15];
-        in-out property <int> language-index;
-        in-out property <int> theme-index;
-        in-out property <bool> save-failed;
-        callback preferences-changed();
-        in-out property <string> log;
-        in-out property <float> progress: 0;
-        in-out property <int> format-index: 0;
-        in-out property <string> source-folder;
-        in-out property <int> avif-quality: 90;
-        in property <[string]> v14-words;
-        in-out property <bool> avif-lossless: false;
-        in-out property <int> jxl-quality: 90;
-        in-out property <bool> jxl-lossless: true;
-        in-out property <string> iat-path;
-        in-out property <bool> iat-enabled: false;
-        in-out property <string> active-stage;
-        in-out property <int> completed-count;
-        in-out property <int> validation-count;
-        in-out property <int> validation-queued;
-        callback clear-selection(); callback clear-folders(); callback choose-iat();
-        in-out property <bool> webp-lossless: true;
-        in-out property <bool> notify: true;
-        in-out property <string> target-icc;
-        callback choose-icc();
-
-        MenuBar { Menu { title: root.words[3]; MenuItem { title: root.words[3]; activated => { root.help(); } } MenuItem { title: root.words[4]; activated => { root.about(); } } } }
-        callback choose-files(); callback import-folder(); callback jxl(); callback choose-folder(); callback start(); callback cancel(); callback about(); callback help();
-        VerticalBox {
-            padding: 24px; spacing: 14px;
-            HorizontalBox {
-                Image { source: @image-url("../assets/app.png"); width: 44px; height: 44px; }
-                Text { text: "IMB-C"; font-size: 28px; font-weight: 700; }
-                Button { text: root.words[37]; enabled: !root.busy; clicked => { root.jxl(); } }
-            }
-            HorizontalBox {
-                Text { text: root.words[27]; vertical-alignment: center; }
-                ComboBox { model: ["繁體中文", "简体中文", "English", "日本語"]; current-index <=> root.language-index; enabled: !root.busy; selected => { root.preferences-changed(); } }
-                Text { text: root.words[28]; vertical-alignment: center; }
-                ComboBox { model: [root.words[29], root.words[30], root.words[31]]; current-index <=> root.theme-index; selected => { root.preferences-changed(); } }
-            }
-            if root.save-failed: Text { text: root.words[32]; wrap: word-wrap; }
-            HorizontalBox {
-                Button { text: root.words[7]; enabled: !root.busy; clicked => { root.choose-files(); } }
-                Button { text: root.words[35]; enabled: !root.busy; clicked => { root.import-folder(); } }
-                CheckBox { text: root.words[36]; checked <=> root.recursive; enabled: !root.busy; }
-                Text { text: root.selection; overflow: elide; }
-            }
-            HorizontalBox {
-                Button { text: root.words[8]; enabled: !root.busy; clicked => { root.choose-folder(); } }
-                Text { text: root.destination; overflow: elide; }
-            }
-            HorizontalBox {
-                Button { text: root.v14-words[3]; enabled: !root.busy && root.selected-count > 0; clicked => { root.clear-selection(); } }
-                Button { text: root.v14-words[4]; enabled: !root.busy; clicked => { root.clear-folders(); } }
-            }
-            HorizontalBox {
-                Text { text: root.words[9]; vertical-alignment: center; }
-                format := FormatPicker { enabled: !root.busy; current-index <=> root.format-index; selected => { root.preferences-changed(); } }
-                Button { text: root.words[10]; enabled: !root.busy && root.ready; clicked => { root.start(); } }
-                Button { text: root.words[11]; enabled: root.busy; clicked => { root.cancel(); } }
-            }
-            HorizontalBox {
-                if root.format-index == 3: Text { text: root.words[42]; vertical-alignment: center; }
-                if root.format-index == 3: SpinBox { width: 90px; horizontal-stretch: 0; minimum: 1; maximum: 100; value: root.avif-lossless ? 100 : root.avif-quality; enabled: !root.busy && !root.avif-lossless; edited(value) => { root.avif-quality = value; root.preferences-changed(); } }
-                if root.format-index == 3: CheckBox { text: root.v14-words[0]; checked <=> root.avif-lossless; enabled: !root.busy; toggled => { root.preferences-changed(); } }
-                if root.format-index == 6: CheckBox { text: root.v14-words[1]; checked <=> root.jxl-lossless; enabled: !root.busy; toggled => { root.preferences-changed(); } }
-                if root.format-index == 6 && !root.jxl-lossless: Text { text: root.v14-words[2]; vertical-alignment: center; }
-                if root.format-index == 6 && !root.jxl-lossless: SpinBox { width: 90px; horizontal-stretch: 0; minimum: 1; maximum: 99; value <=> root.jxl-quality; enabled: !root.busy; edited => { root.preferences-changed(); } }
-                if root.format-index == 0: CheckBox { text: root.words[43]; checked <=> root.webp-lossless; enabled: !root.busy; toggled => { root.preferences-changed(); } }
-                CheckBox { text: root.words[44]; checked <=> root.notify; toggled => { root.preferences-changed(); } }
-            }
-            if root.format-index == 4 || root.format-index == 7: Text { text: root.v14-words[14]; wrap: word-wrap; }
-            HorizontalBox {
-                Button { text: root.words[45]; enabled: !root.busy; clicked => { root.choose-icc(); } }
-                Text { text: root.target-icc == "" ? root.words[48] : root.target-icc; overflow: elide; }
-            }
-            HorizontalBox {
-                CheckBox { text: root.v14-words[5]; checked <=> root.iat-enabled; enabled: !root.busy; toggled => { root.preferences-changed(); } }
-                Button { text: root.v14-words[6]; enabled: !root.busy; clicked => { root.choose-iat(); } }
-                Text { text: root.iat-path == "" ? root.v14-words[7] : root.iat-path; overflow: elide; }
-            }
-            ProgressIndicator { progress: root.progress; }
-            if root.busy: HorizontalBox {
-                Text { text: root.v14-words[16] + root.completed-count + " / " + root.selected-count; }
-                Text { text: "iat: " + root.validation-count + " / " + root.validation-queued; }
-                Text { text: root.active-stage; overflow: elide; horizontal-stretch: 1; }
-            }
-            if root.busy: ProgressIndicator { indeterminate: true; }
-            HorizontalBox {
-                Text { text: root.status; wrap: word-wrap; horizontal-stretch: 1; }
-                Button { text: root.words[56]; enabled: !root.busy && (root.warning-files > 0 || root.warning-report-error != ""); clicked => { root.show-warnings(); } }
-            }
-            if root.warning-report-error != "": Text { text: root.words[57]; wrap: word-wrap; }
-            TextEdit { text: root.log; read-only: true; vertical-stretch: 1; }
-        }
-    }
-}
-
-#[derive(Default)]
-struct Selection {
-    files: Vec<PathBuf>,
-    output: Option<PathBuf>,
+    export { AppWindow } from "ui/app.slint";
+    export { SettingsWindow } from "ui/settings.slint";
+    export { JxlWindow, WarningWindow, CompletionWindow, HelpWindow, AboutWindow } from "ui/auxiliary.slint";
 }
 
 /// 進行中的背景工作數（轉檔批次、JPEG ↔ JXL 工具）；結束看門狗在結束程序前等待歸零。
@@ -350,7 +84,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if cli::is_cli_invocation(&args) {
         std::process::exit(cli::run_from_gui(args));
     }
+    slint::BackendSelector::new()
+        .backend_name("winit".into())
+        .select()?;
     let app = AppWindow::new()?;
+    let settings = SettingsWindow::new()?;
+    let diagnostics = HelpWindow::new()?;
     let about = AboutWindow::new()?;
     let help = HelpWindow::new()?;
     let jxl = JxlWindow::new()?;
@@ -380,7 +119,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let a = aw.unwrap();
         let w = ww.unwrap();
         w.set_words(a.get_words());
-        w.set_summary(a.get_status());
+        w.set_summary(a.get_batch_summary());
         w.set_report_error(a.get_warning_report_error());
         w.set_report_path(a.get_warning_report());
         load_warning_page(&w, report.get().as_deref(), 0);
@@ -406,54 +145,59 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         preferences::load(&std::env::current_exe()?.with_file_name("imb-c-ui.ini"))
     };
-    app.set_format_index(prefs.format);
-    app.set_source_folder(prefs.source_folder.to_string_lossy().into_owned().into());
-    if prefs.output_folder.is_dir() {
-        app.set_output_path(engine::display_path(&prefs.output_folder).into());
-    }
-    app.set_avif_quality(prefs.avif_quality);
-    app.set_avif_lossless(prefs.avif_lossless);
-    app.set_jxl_quality(prefs.jxl_quality);
-    app.set_jxl_lossless(prefs.jxl_lossless);
-    app.set_iat_path(prefs.iat_path.to_string_lossy().into_owned().into());
-    let raw_iat_path = Rc::new(RefCell::new(prefs.iat_path.clone()));
-    app.set_iat_enabled(prefs.iat_enabled);
-    app.set_webp_lossless(prefs.webp_lossless);
-    app.set_notify(prefs.notify);
-    app.set_language_index(prefs.language);
-    app.set_theme_index(prefs.theme);
-    apply_preferences(&app, &about, &help);
-    about.set_third_party_notices(include_str!("../THIRD-PARTY-RUNTIME.txt").into());
-    let weak = app.as_weak();
-    let about_weak = about.as_weak();
-    let help_weak = help.as_weak();
-    let persisted_iat_path = raw_iat_path.clone();
-    app.on_preferences_changed(move || {
-        let a = weak.unwrap();
-        if let (Some(b), Some(h)) = (about_weak.upgrade(), help_weak.upgrade()) {
-            apply_preferences(&a, &b, &h);
-        }
-        a.set_save_failed(
-            preferences::save(
-                &prefs_path,
-                preferences::Preferences {
-                    language: a.get_language_index(),
-                    theme: a.get_theme_index(),
-                    format: a.get_format_index(),
-                    source_folder: PathBuf::from(a.get_source_folder().as_str()),
-                    output_folder: PathBuf::from(a.get_output_path().as_str()),
-                    avif_quality: a.get_avif_quality(),
-                    avif_lossless: a.get_avif_lossless(),
-                    jxl_quality: a.get_jxl_quality(),
-                    jxl_lossless: a.get_jxl_lossless(),
-                    iat_path: persisted_iat_path.borrow().clone(),
-                    iat_enabled: a.get_iat_enabled(),
-                    webp_lossless: a.get_webp_lossless(),
-                    notify: a.get_notify(),
-                },
-            )
-            .is_err(),
+    let prefs = Rc::new(RefCell::new(prefs));
+    let bw = about.as_weak();
+    let hw = help.as_weak();
+    let jw = jxl.as_weak();
+    let ww = warnings_window.as_weak();
+    let cw = completion.as_weak();
+    let dw = diagnostics.as_weak();
+    let settings_probe = ui_settings::connect(&app, &settings, &prefs_path, &prefs, move |a| {
+        let (b, h, j, w, c, d) = (
+            bw.unwrap(),
+            hw.unwrap(),
+            jw.unwrap(),
+            ww.unwrap(),
+            cw.unwrap(),
+            dw.unwrap(),
         );
+        apply_auxiliary_text(a, &b, &h);
+        let words = a.get_words();
+        j.set_words(words.clone());
+        w.set_words(words.clone());
+        c.set_words(words);
+        d.set_heading(i18n::text(a.get_language_index(), 52).into());
+        let theme = ui_settings::palette_index(a.get_theme_index());
+        b.global::<Palette>().set_color_scheme(theme);
+        h.global::<Palette>().set_color_scheme(theme);
+        j.global::<Palette>().set_color_scheme(theme);
+        w.global::<Palette>().set_color_scheme(theme);
+        c.global::<Palette>().set_color_scheme(theme);
+        d.global::<Palette>().set_color_scheme(theme);
+    });
+    about.set_third_party_notices(include_str!("../THIRD-PARTY-RUNTIME.txt").into());
+
+    let aw = app.as_weak();
+    let dw = diagnostics.as_weak();
+    settings.on_show_diagnostics(move || {
+        let a = aw.unwrap();
+        let d = dw.unwrap();
+        let lang = a.get_language_index();
+        d.set_heading(i18n::text(lang, 52).into());
+        d.set_content(
+            format!(
+                "{}\n\n{}\n{}\n{}\n\n{}\n{}\n{}",
+                ui_settings::runtime_info(lang),
+                i18n::gui(lang, 47),
+                engine::display_path(&prefs_path),
+                i18n::gui(lang, 48),
+                i18n::text(lang, 62),
+                a.get_warning_report(),
+                a.get_log(),
+            )
+            .into(),
+        );
+        let _ = d.show();
     });
     let engine = engine::locate_engine();
     // 背景回收先前異常結束留下的暫存（只處理已終止執行個體的擁有權紀錄）；有結果才寫入日誌。
@@ -472,147 +216,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             });
         }
     });
-    let state = Rc::new(RefCell::new(Selection {
-        files: Vec::new(),
-        output: if prefs.output_folder.is_dir() {
-            Some(prefs.output_folder.clone())
-        } else {
-            None
-        },
-    }));
+    let files = ui_queue::connect(&app, &prefs);
+    let target_profile = Rc::new(RefCell::new(None::<PathBuf>));
     let weak = app.as_weak();
+    let profile = target_profile.clone();
     app.on_choose_icc(move || {
         let a = weak.unwrap();
-        // Cancelling clears a previously selected target profile.
-        let picked = rfd::FileDialog::new()
-            .add_filter("ICC", &["icc", "icm"])
-            .pick_file();
-        a.set_target_icc(
-            picked
-                .map(|p| p.to_string_lossy().into_owned())
-                .unwrap_or_default()
-                .into(),
-        );
+        if let Some(picked) = a
+            .window()
+            .with_winit_window(|parent| {
+                rfd::FileDialog::new()
+                    .set_parent(parent)
+                    .add_filter("ICC", &["icc", "icm"])
+                    .pick_file()
+            })
+            .flatten()
+        {
+            a.set_target_icc(engine::display_path(&picked).into());
+            *profile.borrow_mut() = Some(picked);
+        }
+    });
+    let weak = app.as_weak();
+    let profile = target_profile.clone();
+    app.on_clear_icc(move || {
+        *profile.borrow_mut() = None;
+        weak.unwrap().set_target_icc("".into());
     });
     let cancel = Arc::new(AtomicBool::new(false));
-    let weak = app.as_weak();
-    let s = state.clone();
-    app.on_clear_selection(move || {
-        let a = weak.unwrap();
-        s.borrow_mut().files.clear();
-        a.set_selected_count(0);
-        a.set_ready(false);
-        a.set_progress(0.0);
-        a.set_phase(0);
-        a.set_log("".into());
-    });
-    let weak = app.as_weak();
-    let s = state.clone();
-    app.on_clear_folders(move || {
-        let a = weak.unwrap();
-        s.borrow_mut().output = None;
-        s.borrow_mut().files.clear();
-        a.set_source_folder("".into());
-        a.set_output_path("".into());
-        a.set_selected_count(0);
-        a.set_ready(false);
-        a.set_progress(0.0);
-        a.set_phase(0);
-        a.set_log("".into());
-        a.invoke_preferences_changed();
-    });
-    let weak = app.as_weak();
-    let chosen_iat_path = raw_iat_path.clone();
-    app.on_choose_iat(move || {
-        let path = rfd::FileDialog::new()
-            .add_filter("iat.exe", &["exe"])
-            .pick_file();
-        let a = weak.unwrap();
-        *chosen_iat_path.borrow_mut() = path.clone().unwrap_or_default();
-        a.set_iat_path(
-            path.map(|p| engine::display_path(&p))
-                .unwrap_or_default()
-                .into(),
-        );
-        a.invoke_preferences_changed();
-    });
     let worker = Rc::new(RefCell::new(None::<std::thread::JoinHandle<()>>));
-    let weak = app.as_weak();
-    let s = state.clone();
-    app.on_choose_files(move || {
-        if let Some(files) = folder_dialog(weak.unwrap().get_source_folder().as_str())
-            .add_filter(
-                i18n::text(weak.unwrap().get_language_index(), 24),
-                &[
-                    "webp", "png", "jpg", "jpeg", "avif", "psd", "psb", "tif", "tiff", "jxl",
-                ],
-            )
-            .pick_files()
-        {
-            let a = weak.unwrap();
-            let mut s = s.borrow_mut();
-            if let Some(parent) = files.first().and_then(|p| p.parent()) {
-                a.set_source_folder(parent.to_string_lossy().into_owned().into());
-                a.invoke_preferences_changed();
-            }
-            s.files = files;
-            a.set_selected_count(s.files.len() as i32);
-            a.set_log(
-                s.files
-                    .iter()
-                    .take(200)
-                    .map(engine::display_path)
-                    .collect::<Vec<_>>()
-                    .join("\n")
-                    .into(),
-            );
-            a.set_ready(!s.files.is_empty() && s.output.is_some());
-        }
-    });
-    let weak = app.as_weak();
-    let s = state.clone();
-    app.on_choose_folder(move || {
-        if let Some(folder) = folder_dialog(weak.unwrap().get_output_path().as_str()).pick_folder()
-        {
-            let a = weak.unwrap();
-            let mut s = s.borrow_mut();
-            a.set_output_path(engine::display_path(&folder).into());
-            s.output = Some(folder);
-            a.invoke_preferences_changed();
-            a.set_ready(!s.files.is_empty());
-        }
-    });
-    let weak = app.as_weak();
-    let s = state.clone();
-    app.on_import_folder(move || {
-        let a = weak.unwrap();
-        if let Some(folder) = folder_dialog(a.get_source_folder().as_str()).pick_folder() {
-            a.set_source_folder(folder.to_string_lossy().into_owned().into());
-            a.invoke_preferences_changed();
-            match imports::folder(&folder, a.get_recursive()) {
-                Ok((files, warnings)) => {
-                    let mut s = s.borrow_mut();
-                    s.files = files;
-                    a.set_selected_count(s.files.len() as i32);
-                    let mut log = String::new();
-                    for line in s
-                        .files
-                        .iter()
-                        .take(200)
-                        .map(engine::display_path)
-                        .chain(warnings)
-                    {
-                        log = append_log(&log, &line);
-                    }
-                    a.set_log(log.into());
-                    a.set_ready(!s.files.is_empty() && s.output.is_some());
-                }
-                Err(e) => {
-                    a.set_log(e.into());
-                }
-            }
-        }
-    });
     let jw = jxl.as_weak();
     let aw = app.as_weak();
     app.on_jxl(move || {
@@ -662,14 +293,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         c.store(true, Ordering::Relaxed);
     });
     let c = cancel.clone();
+    let jw = jxl.as_weak();
     jxl.window().on_close_requested(move || {
-        c.store(true, Ordering::Relaxed);
+        if jw.upgrade().is_some_and(|j| j.get_busy()) {
+            c.store(true, Ordering::Relaxed);
+        }
         slint::CloseRequestResponse::HideWindow
     });
     let jw = jxl.as_weak();
     let aw = app.as_weak();
     let c = cancel.clone();
     let slot = worker.clone();
+    let sw = settings.as_weak();
     jxl.on_start(move || {
         let j = jw.unwrap();
         let a = aw.unwrap();
@@ -697,9 +332,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         c.store(false, Ordering::Relaxed);
         j.set_busy(true);
         a.set_busy(true);
+        a.set_phase(1);
+        a.set_batch_total(0);
+        a.set_progress(0.0);
+        a.set_completed_count(0);
+        a.set_validation_count(0);
+        a.set_validation_queued(0);
+        a.set_active_stage("JPEG ↔ JXL".into());
+        sw.unwrap().set_busy(true);
         j.set_result(i18n::text(a.get_language_index(), 16).into());
         let jw = jw.clone();
         let aw = aw.clone();
+        let sw = sw.clone();
         let c = c.clone();
         let work = WorkGuard::new();
         *slot.borrow_mut() = Some(std::thread::spawn(move || {
@@ -735,6 +379,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             });
             let _ = aw.upgrade_in_event_loop(move |a| {
                 a.set_busy(false);
+                a.set_phase(0);
+                a.set_active_stage("".into());
+                if let Some(w) = sw.upgrade() {
+                    w.set_busy(false);
+                }
             });
         }));
     });
@@ -750,9 +399,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let close_cancel = cancel.clone();
     let help_weak = help.as_weak();
     let completion_close = completion.as_weak();
+    let settings_close = settings.as_weak();
+    let diagnostics_close = diagnostics.as_weak();
+    let closing_probe = settings_probe.clone();
     app.window().on_close_requested(move || {
         UI_CLOSING.store(true, Ordering::SeqCst);
         close_cancel.store(true, Ordering::Relaxed);
+        closing_probe.cancel();
+        if let Some(window) = settings_close.upgrade() {
+            let _ = window.hide();
+        }
+        if let Some(window) = diagnostics_close.upgrade() {
+            let _ = window.hide();
+        }
         if let Some(window) = completion_close.upgrade() {
             let _ = window.hide();
         }
@@ -774,19 +433,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         start_exit_watchdog();
         slint::CloseRequestResponse::HideWindow
     });
-    app.on_help(move || {
-        let _ = help.show();
+    let hw = help.as_weak();
+    settings.on_show_help(move || {
+        let _ = hw.unwrap().show();
     });
-    app.on_about(move || {
-        let _ = about.show();
+    let bw = about.as_weak();
+    app.on_show_about(move || {
+        let _ = bw.unwrap().show();
+    });
+    let bw = about.as_weak();
+    settings.on_show_licenses(move || {
+        let _ = bw.unwrap().show();
     });
     let weak = app.as_weak();
     let c = cancel.clone();
     let worker_slot = worker.clone();
     let jxl_weak = jxl.as_weak();
+    let warnings_weak = warnings_window.as_weak();
     let completion_weak = completion.as_weak();
     let start_report = report_file.clone();
-    let conversion_iat_path = raw_iat_path.clone();
+    let sw = settings.as_weak();
+    let manual_probe = settings_probe.clone();
     app.on_start(move || {
         let a = weak.unwrap();
         if UI_CLOSING.load(Ordering::SeqCst) || a.get_busy() {
@@ -798,13 +465,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if let Some(window) = completion_weak.upgrade() {
             let _ = window.hide();
         }
+        if let Some(window) = warnings_weak.upgrade() {
+            let _ = window.hide();
+        }
         let completion_weak = completion_weak.clone();
         let report_file = start_report.clone();
-        let s = state.borrow();
-        let Some(folder) = s.output.clone() else {
+        let folder = prefs.borrow().output_folder.clone();
+        let files = files.borrow().clone();
+        if files.is_empty() {
             return;
-        };
-        let files = s.files.clone();
+        }
+        if folder.as_os_str().is_empty() || !folder.is_dir() {
+            let text = i18n::gui(a.get_language_index(), 39);
+            a.set_log(append_log(&a.get_log(), text).into());
+            a.set_show_log(true);
+            a.set_ready(false);
+            return;
+        }
         let format = engine::Format::from_index(a.get_format_index());
         let options = engine::Options {
             avif_quality: a.get_avif_quality().clamp(1, 100) as u8,
@@ -812,17 +489,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             jxl_quality: a.get_jxl_quality().clamp(1, 99) as u8,
             jxl_lossless: a.get_jxl_lossless(),
             webp_lossless: a.get_webp_lossless(),
-            target_icc: if a.get_target_icc().is_empty() {
-                None
-            } else {
-                Some(PathBuf::from(a.get_target_icc().as_str()))
-            },
+            target_icc: target_profile.borrow().clone(),
             ..Default::default()
         };
-        let notify = a.get_notify();
-        let iat_enabled = a.get_iat_enabled();
-        let iat_path = conversion_iat_path.borrow().clone();
+        let (notify, iat_enabled, iat_path) = {
+            let settings = prefs.borrow();
+            (
+                settings.notify,
+                settings.iat_enabled,
+                settings.iat_path.clone(),
+            )
+        };
+        if iat_enabled {
+            // 批次會自行檢查版本，避免舊的手動探測結果稍後覆寫批次狀態。
+            manual_probe.cancel();
+        }
         a.set_busy(true);
+        a.set_batch_total(files.len().min(i32::MAX as usize) as i32);
+        a.set_dragging(false);
+        a.set_show_log(true);
+        sw.unwrap().set_busy(true);
+        let sw = sw.clone();
         a.set_progress(0.0);
         a.set_completed_count(0);
         a.set_active_stage("".into());
@@ -851,11 +538,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let external = if iat_enabled {
                 match std::env::current_exe()
                     .map_err(|e| e.to_string())
-                    .and_then(|exe| iat::Client::discover(Some(&iat_path), &exe))
+                    .and_then(|exe| iat::Client::probe(Some(&iat_path), &exe, &c))
                 {
-                    Ok(client) => Some(client),
+                    Ok((client, version)) => {
+                        let _ = sw.upgrade_in_event_loop(move |w| {
+                            ui_settings::set_probe_status(&w, Ok(version));
+                        });
+                        Some(client)
+                    }
+                    Err(_) if c.load(Ordering::Relaxed) => None,
                     Err(e) => {
                         let line = format!("{}（{e}）", i18n::v14(lang, 15));
+                        let _ = sw.upgrade_in_event_loop(move |w| {
+                            ui_settings::set_probe_status(&w, Err(e));
+                        });
                         let _ = weak.upgrade_in_event_loop(move |a| {
                             a.set_log(append_log(&a.get_log(), &line).into())
                         });
@@ -1033,6 +729,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     a.set_log(i18n::text(lang, 23).into());
                     a.set_busy(false);
                     a.set_phase(5);
+                    if let Some(w) = sw.upgrade() {
+                        w.set_busy(false);
+                    }
                 });
                 return;
             }
@@ -1060,6 +759,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let stopped = user_cancelled || system_aborted;
             let _ = weak.upgrade_in_event_loop(move |a| {
                 a.set_busy(false);
+                if let Some(w) = sw.upgrade() {
+                    w.set_busy(false);
+                }
                 a.set_successes(
                     batch_warnings::clean_successes(
                         count,
@@ -1090,7 +792,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     && let Some(w) = completion_weak.upgrade()
                 {
                     w.set_words(a.get_words());
-                    w.set_status(a.get_status());
+                    w.set_status(a.get_batch_summary());
                     w.set_report_path(a.get_warning_report());
                     w.global::<Palette>()
                         .set_color_scheme(a.global::<Palette>().get_color_scheme());
@@ -1103,6 +805,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ui_result = app.run();
     EVENT_LOOP_RETURNED.store(true, Ordering::SeqCst);
     cancel.store(true, Ordering::Relaxed);
+    settings_probe.shutdown();
     // Workers observe cancellation, terminate their ImageMagick child, and remove temporary files.
     if let Some(handle) = worker.borrow_mut().take() {
         let _ = handle.join();
@@ -1172,37 +875,19 @@ fn load_warning_page(window: &WarningWindow, path: Option<&std::path::Path>, pag
     }
 }
 
-fn apply_preferences(app: &AppWindow, about: &AboutWindow, help: &HelpWindow) {
-    app.set_v14_words(
-        std::rc::Rc::new(slint::VecModel::from(
-            i18n::V14
-                .iter()
-                .map(|row| {
-                    slint::SharedString::from(row[app.get_language_index().clamp(0, 3) as usize])
-                })
-                .collect::<Vec<_>>(),
-        ))
-        .into(),
-    );
+fn apply_auxiliary_text(app: &AppWindow, about: &AboutWindow, help: &HelpWindow) {
     let lang = app.get_language_index();
-    let words: slint::ModelRc<slint::SharedString> = Rc::new(slint::VecModel::from(
-        i18n::TEXT
-            .iter()
-            .map(|row| slint::SharedString::from(row[lang.clamp(0, 3) as usize]))
-            .collect::<Vec<_>>(),
-    ))
-    .into();
-    app.set_words(words.clone());
-    about.set_words(words);
+    about.set_words(app.get_words());
     help.set_heading(i18n::text(lang, 3).into());
     help.set_content(
         format!(
-            "{}\n{}\n\n{}\n{}\n{}\n\n{}\n{}\n\n{}\nImageMagick: {}\n{}",
+            "{}\n{}\n\n{}\n{}\n{}\n{}\n\n{}\n{}\n\n{}\nImageMagick: {}\n{}",
             i18n::text(lang, 49),
             i18n::text(lang, 6),
             i18n::text(lang, 50),
             i18n::text(lang, 47),
             i18n::text(lang, 12),
+            i18n::v14(lang, 14),
             i18n::text(lang, 51),
             i18n::text(lang, 46),
             i18n::text(lang, 52),
@@ -1211,23 +896,7 @@ fn apply_preferences(app: &AppWindow, about: &AboutWindow, help: &HelpWindow) {
         )
         .into(),
     );
-    app.set_product_title(
-        format!(
-            "IMB-C v{VERSION} · {} · {}",
-            i18n::text(lang, 0),
-            i18n::text(lang, 1)
-        )
-        .into(),
-    );
-    about.set_product_title(format!("IMB-C v{VERSION} · {}", i18n::text(lang, 1)).into());
-    let scheme = match app.get_theme_index() {
-        1 => slint::language::ColorScheme::Light,
-        2 => slint::language::ColorScheme::Dark,
-        _ => slint::language::ColorScheme::Unknown,
-    };
-    app.global::<Palette>().set_color_scheme(scheme);
-    about.global::<Palette>().set_color_scheme(scheme);
-    help.global::<Palette>().set_color_scheme(scheme);
+    about.set_product_title(format!("IMB-C v{VERSION} · {}", i18n::gui(lang, 30)).into());
 }
 
 /// Open a file with its associated program; failures are returned, never panicked on.
@@ -1289,15 +958,6 @@ fn append_log(previous: &str, line: &str) -> String {
     let mut text = lines.join("\n");
     text.push('\n');
     text
-}
-
-fn folder_dialog(path: &str) -> rfd::FileDialog {
-    let dialog = rfd::FileDialog::new();
-    if std::path::Path::new(path).is_dir() {
-        dialog.set_directory(path)
-    } else {
-        dialog
-    }
 }
 
 #[cfg(test)]

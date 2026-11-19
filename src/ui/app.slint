@@ -1,0 +1,325 @@
+import { Button, CheckBox, ComboBox, LineEdit, Palette, ProgressIndicator, ScrollView, SpinBox, StandardListView, TextEdit } from "std-widgets.slint";
+import { Theme, Panel, Heading, Caption } from "theme.slint";
+
+export component AppWindow inherits Window {
+    title: root.product-title;
+    icon: @image-url("../../assets/app.png");
+    preferred-width: 1000px;
+    preferred-height: 680px;
+    min-width: 780px;
+    min-height: 560px;
+    background: Theme.canvas;
+    default-font-size: 14px;
+
+    in property <[string]> words;
+    in property <[string]> v14-words;
+    in property <[string]> labels;
+    in property <[StandardListViewItem]> files;
+    in property <string> selected-path;
+    in property <string> product-title;
+    in-out property <bool> busy;
+    in-out property <bool> ready;
+    in-out property <int> batch-total;
+    in-out property <bool> recursive;
+    in-out property <bool> dragging;
+    in-out property <int> current-file: -1;
+    in-out property <int> selected-count;
+    in-out property <string> output-path;
+    in-out property <int> phase;
+    in-out property <int> successes;
+    in-out property <int> warning-files;
+    in-out property <int> warning-count;
+    in-out property <string> warning-report;
+    in-out property <string> warning-report-error;
+    in-out property <int> failures;
+    in-out property <int> cancelled;
+    out property <string> status: root.phase == 1 ? root.words[16]
+        : root.phase == 2 ? root.words[17]
+        : root.phase == 5 ? root.labels[49]
+        : root.phase == 4 ? root.words[18]
+        : root.phase == 3 ? root.words[19] : root.words[15];
+    out property <string> batch-summary: root.status + "\n" + root.result-counts;
+    property <string> result-counts: root.words[53] + " " + root.successes
+        + "  ·  " + root.words[54] + " " + root.warning-files
+        + " / " + root.words[55] + " " + root.warning-count
+        + "  ·  " + root.words[21] + " " + root.failures
+        + "  ·  " + root.words[34] + " " + root.cancelled;
+    in-out property <int> language-index;
+    in-out property <int> theme-index;
+    in-out property <bool> save-failed;
+    in-out property <string> log;
+    in-out property <bool> show-log;
+    in-out property <float> progress;
+    in-out property <int> format-index;
+    in-out property <int> avif-quality: 90;
+    in-out property <bool> avif-lossless;
+    in-out property <int> jxl-quality: 90;
+    in-out property <bool> jxl-lossless: true;
+    in-out property <bool> webp-lossless: true;
+    in-out property <string> target-icc;
+    in-out property <string> active-stage;
+    in-out property <int> completed-count;
+    in-out property <int> validation-count;
+    in-out property <int> validation-queued;
+
+    callback preferences-changed();
+    callback choose-files();
+    callback import-folder();
+    callback file-selected(int);
+    callback remove-file();
+    callback clear-selection();
+    callback clear-icc();
+    callback choose-icc();
+    callback choose-folder();
+    callback start();
+    callback cancel();
+    callback settings();
+    callback show-about();
+    callback jxl();
+    callback show-warnings();
+
+    MenuBar {
+        Menu {
+            title: root.words[3];
+            MenuItem {
+                title: root.words[4];
+                activated => { root.show-about(); }
+            }
+        }
+    }
+
+    VerticalLayout {
+        spacing: 0px;
+        Rectangle {
+            background: Theme.surface;
+            height: 68px;
+            HorizontalLayout {
+                padding-left: Theme.gutter;
+                padding-right: Theme.gutter;
+                spacing: 12px;
+                Image { source: @image-url("../../assets/app.png"); width: 34px; height: 34px; y: (parent.height - self.height) / 2; }
+                Heading { text: "IMB-C"; font-size: 23px; vertical-alignment: center; }
+                Caption { text: root.words[0]; wrap: no-wrap; vertical-alignment: center; }
+                Rectangle { horizontal-stretch: 1; }
+                VerticalLayout {
+                    alignment: center;
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Button { text: root.words[37]; height: Theme.control; enabled: !root.busy; clicked => { root.jxl(); } }
+                        Button { text: root.labels[0]; height: Theme.control; clicked => { root.settings(); } }
+                    }
+                }
+            }
+        }
+        Rectangle { height: 1px; background: Theme.outline; }
+        HorizontalLayout {
+            padding: Theme.gutter;
+            spacing: Theme.gap;
+            vertical-stretch: 1;
+            Panel {
+                horizontal-stretch: 1;
+                VerticalLayout {
+                    padding: 14px;
+                    spacing: 10px;
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Heading { text: root.show-log ? root.labels[2] : root.labels[1]; vertical-alignment: center; horizontal-stretch: 1; }
+                        Button {
+                            text: root.show-log ? root.labels[1] : root.labels[2];
+                            height: Theme.control;
+                            clicked => { root.show-log = !root.show-log; }
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Button { text: root.labels[3]; height: Theme.control; enabled: !root.busy; clicked => { root.choose-files(); } }
+                        Button { text: root.words[35]; height: Theme.control; enabled: !root.busy; clicked => { root.import-folder(); } }
+                        Rectangle { horizontal-stretch: 1; }
+                    }
+                    CheckBox { text: root.words[36]; checked <=> root.recursive; enabled: !root.busy; }
+                    if root.show-log: TextEdit {
+                        text: root.log;
+                        read-only: true;
+                        vertical-stretch: 1;
+                        accessible-label: root.labels[2];
+                    }
+                    if !root.show-log: Rectangle {
+                        vertical-stretch: 1;
+                        background: root.dragging ? Palette.selection-background : Theme.surface;
+                        border-color: root.dragging ? Theme.accent : Theme.outline;
+                        border-width: 1px;
+                        border-radius: 7px;
+                        if root.selected-count == 0: VerticalLayout {
+                            alignment: center;
+                            padding: 20px;
+                            spacing: 6px;
+                            Heading { text: root.labels[4]; horizontal-alignment: center; wrap: word-wrap; }
+                            Caption { text: root.labels[5]; horizontal-alignment: center; }
+                        }
+                        if root.selected-count > 0: queue := StandardListView {
+                            x: 1px; y: 1px; width: parent.width - 2px; height: parent.height - 2px;
+                            model: root.files;
+                            current-item <=> root.current-file;
+                            accessible-label: root.labels[1];
+                            current-item-changed(index) => { root.file-selected(index); }
+                            item-pointer-event(index, event, position) => {
+                                if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
+                                    queue.focus();
+                                }
+                            }
+                        }
+                    }
+                    if !root.show-log && root.current-file >= 0: LineEdit {
+                        text: root.selected-path;
+                        accessible-label: root.labels[36];
+                        read-only: true;
+                    }
+                    HorizontalLayout {
+                        spacing: 7px;
+                        Caption {
+                            text: root.selected-count + " " + (root.selected-count == 1 ? root.labels[51] : root.words[26]);
+                            horizontal-stretch: 1;
+                            vertical-alignment: center;
+                            wrap: no-wrap;
+                        }
+                        Button {
+                            text: root.labels[6]; height: Theme.control;
+                            enabled: !root.busy && !root.show-log && root.current-file >= 0;
+                            clicked => { root.remove-file(); }
+                        }
+                        Button {
+                            text: root.v14-words[3]; height: Theme.control;
+                            enabled: !root.show-log && root.current-file >= 0;
+                            clicked => { root.current-file = -1; root.file-selected(-1); }
+                        }
+                        Button {
+                            text: root.labels[7]; height: Theme.control;
+                            enabled: !root.busy && root.selected-count > 0;
+                            clicked => { root.clear-selection(); }
+                        }
+                    }
+                }
+            }
+            Panel {
+                width: 322px;
+                VerticalLayout {
+                    padding: 14px;
+                    spacing: 8px;
+                    Heading { text: root.labels[9]; }
+                    Rectangle { height: 1px; background: Theme.outline; }
+                    ScrollView {
+                        vertical-stretch: 1;
+                        horizontal-scrollbar-policy: always-off;
+                        content-width: self.visible-width;
+                        VerticalLayout {
+                            spacing: 8px;
+                            alignment: LayoutAlignment.start;
+                            Text { text: root.words[9]; font-weight: 600; }
+                            ComboBox {
+                                model: ["WebP", "PNG", "JPEG", "AVIF", "PSD", "TIFF", "JXL", "PSB"];
+                                current-index <=> root.format-index;
+                                accessible-label: root.words[9];
+                                enabled: !root.busy;
+                                height: Theme.control;
+                                selected => { root.preferences-changed(); }
+                            }
+                            if root.format-index == 0: CheckBox {
+                                text: root.words[43]; checked <=> root.webp-lossless; enabled: !root.busy;
+                                toggled => { root.preferences-changed(); }
+                            }
+                            if root.format-index == 3: CheckBox {
+                                text: root.v14-words[0]; checked <=> root.avif-lossless; enabled: !root.busy;
+                                toggled => { root.preferences-changed(); }
+                            }
+                            if root.format-index == 3: HorizontalLayout {
+                                spacing: 8px;
+                                Text { text: root.words[42]; vertical-alignment: center; horizontal-stretch: 1; }
+                                SpinBox {
+                                    horizontal-stretch: 0; minimum: 1; maximum: 100;
+                                    value: root.avif-lossless ? 100 : root.avif-quality;
+                                    enabled: !root.busy && !root.avif-lossless;
+                                    accessible-label: root.words[42];
+                                    edited(value) => { root.avif-quality = value; root.preferences-changed(); }
+                                }
+                            }
+                            if root.format-index == 6: CheckBox {
+                                text: root.v14-words[1]; checked <=> root.jxl-lossless; enabled: !root.busy;
+                                toggled => { root.preferences-changed(); }
+                            }
+                            if root.format-index == 6 && !root.jxl-lossless: HorizontalLayout {
+                                spacing: 8px;
+                                Text { text: root.v14-words[2]; vertical-alignment: center; horizontal-stretch: 1; }
+                                SpinBox {
+                                    horizontal-stretch: 0; minimum: 1; maximum: 99;
+                                    value <=> root.jxl-quality; enabled: !root.busy;
+                                    accessible-label: root.v14-words[2];
+                                    edited => { root.preferences-changed(); }
+                                }
+                            }
+                            if root.format-index == 4 || root.format-index == 7: Caption { text: root.v14-words[14]; }
+                            HorizontalLayout {
+                                spacing: 8px;
+                                Text {
+                                    text: root.labels[8]; font-weight: 600; vertical-alignment: center;
+                                    horizontal-stretch: 1;
+                                }
+                                Button { text: root.labels[10]; height: Theme.control; enabled: !root.busy; clicked => { root.choose-folder(); } }
+                            }
+                            LineEdit {
+                                text: root.output-path; placeholder-text: root.words[14];
+                                accessible-label: root.labels[8]; read-only: true; height: Theme.control;
+                            }
+                            Text { text: root.labels[11]; font-weight: 600; }
+                            HorizontalLayout {
+                                spacing: 8px;
+                                Caption {
+                                    text: root.target-icc == "" ? root.words[48] : root.target-icc;
+                                    wrap: no-wrap; overflow: elide; accessible-label: self.text;
+                                    horizontal-stretch: 1; vertical-alignment: center;
+                                }
+                                Button { text: root.words[45]; height: Theme.control; enabled: !root.busy; clicked => { root.choose-icc(); } }
+                                if root.target-icc != "": Button {
+                                    text: root.labels[12]; height: Theme.control; enabled: !root.busy;
+                                    clicked => { root.clear-icc(); }
+                                }
+                            }
+                        }
+                    }
+                    Rectangle { height: 1px; background: Theme.outline; }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Button { text: root.words[10]; primary: true; height: 38px; horizontal-stretch: 1; enabled: !root.busy && root.ready; clicked => { root.start(); } }
+                        Button { text: root.words[11]; height: 38px; enabled: root.busy && root.phase != 2; clicked => { root.cancel(); } }
+                    }
+                }
+            }
+        }
+        Rectangle { height: 1px; background: Theme.outline; }
+        Rectangle {
+            background: Theme.surface;
+            VerticalLayout {
+                padding-left: Theme.gutter; padding-right: Theme.gutter;
+                padding-top: 10px; padding-bottom: 12px; spacing: 5px;
+                ProgressIndicator { progress: root.progress; indeterminate: root.busy && (root.completed-count == 0 || (root.validation-queued > root.validation-count && root.progress >= 1)); }
+                HorizontalLayout {
+                    spacing: 10px;
+                    Text { text: root.status; font-weight: 600; vertical-alignment: center; }
+                    Caption {
+                        text: root.phase >= 3 ? root.result-counts
+                            : root.busy && root.batch-total > 0 ? root.v14-words[16] + root.completed-count + " / " + root.batch-total
+                                + (root.validation-queued > 0 ? "  ·  iat " + root.validation-count + " / " + root.validation-queued : "")
+                            : "";
+                        horizontal-stretch: 1;
+                        vertical-alignment: center;
+                    }
+                    if !root.busy && (root.warning-files > 0 || root.warning-report-error != ""): Button {
+                        text: root.words[56]; height: Theme.control; clicked => { root.show-warnings(); }
+                    }
+                }
+                if root.busy && root.active-stage != "": Caption { text: root.active-stage; wrap: no-wrap; overflow: elide; }
+                if root.warning-report-error != "": Caption { text: root.words[57]; }
+                if root.save-failed: Caption { text: root.words[32]; }
+            }
+        }
+    }
+}

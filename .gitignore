@@ -20,6 +20,7 @@ __pycache__/
 # Keep historical validation and personal delivery records locally.
 /*.md
 !/README.md
+!/CHANGELOG.md
 !/AGENTS.md
 !/AVIF-REBUILD.md
 !/LGPL-REPLACEMENT.md
@@ -53,6 +54,7 @@ __pycache__/
 # Historical local handoffs may contain private fixture paths. Publish only these summaries.
 /docs/*
 !/docs/v1.4-plan.md
+!/docs/build-2.0.0.md
 !/docs/v1.4-development.md
 !/docs/v1.4-dng-evaluation.md
 !/docs/v1.4-test-report.md
