@@ -10,6 +10,10 @@
 
 詳見 [v2.0.0 版本說明](RELEASE-NOTES-2.0.0.md)。
 
+## v1.4 候選版
+
+- [v1.4.0-rc.2](https://github.com/Kaido-MSVC/IMB-C/releases/tag/v1.4.0-rc.2) 為歷史候選版，後續正式版為 [v2.0.0](https://github.com/Kaido-MSVC/IMB-C/releases/tag/v2.0.0)。MSI 升級步驟請見 [v2.0.0 安裝說明](INSTALL.md)。
+
 ## v1.3.3 與更早版本
 
 - [v1.3.3](https://github.com/Kaido-MSVC/IMB-C/releases/tag/v1.3.3)
